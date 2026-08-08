@@ -1,0 +1,107 @@
+name: Mutation delta
+
+# EXAMPLE WORKFLOW — from the node-ts adapter. It is inert where it sits:
+# GitHub only reads `.github/workflows/`, and nothing under `adapters/` is on
+# any execution path. Copy it to `.github/workflows/mutation-delta.yml` to
+# activate it, and read adapters/node-ts/INSTALL.md first for what must be
+# edited afterwards (package manager version, Node version, the label).
+#
+# WHAT IT DOES: runs the differential mutation diagnostic
+# (scripts/mutation-delta.sh) over a pull request's own changes and publishes
+# the summary as exactly ONE pull-request comment, edited in place on re-runs.
+#
+# ON DEMAND, BY LABEL. A mutation run executes the suite once per mutant; a
+# calibration run over one small pure package was ~51 s on a warm developer
+# machine, and a shared runner is slower. Putting that on every push buys a
+# slowly-moving signal at a constantly-paid cost — and turns the score into a
+# target to defend rather than a diagnostic to read. So the operator asks for
+# it, by adding the `mutation-check` label to the pull request.
+#
+# THE TRIGGER SHAPE, and why it is these two types and no others:
+#
+#   labeled      — the request itself. The job's `if:` requires that THIS event
+#                  added `mutation-check`, not merely that the PR carries it: a
+#                  labelled PR keeps its label, so `labeled` fires again for
+#                  every other label anyone adds, and re-measuring then would
+#                  charge a run to an event that changed no code.
+#   synchronize  — new commits on an ALREADY-labelled PR. Without it the comment
+#                  would describe a diff that has moved on, which is worse than
+#                  no comment. An unlabelled PR fails the `if:` and no runner is
+#                  ever allocated.
+#
+# There is deliberately no `opened`, no `reopened`, no `push` and no `schedule`:
+# every one of them would spend a mutation run on work that never asked for one.
+#
+# NEVER A GATE. Keep it out of your branch protection's required status checks,
+# and note that the script exits 0 whatever the score — the same call
+# `thresholds.break: null` makes in stryker.config.mjs. If you add it as a
+# required check you have converted a diagnostic into a threshold, and the next
+# person to meet a surviving mutant will weaken a test to clear it.
+#
+# THE LOGIC IS IN THE SCRIPT. The label rule, the comment body and the
+# find-the-marker-or-create dance all live in scripts/mutation-delta-ci.sh,
+# where they are executable and testable with a simulated event payload. What is
+# left here is checkout, install, and one call. The `if:` below is the one
+# deliberate restatement: it is the only place that can stop a runner from being
+# allocated at all, and the script re-checks the same rule so that widening this
+# trigger cannot quietly start spending.
+#
+# OPERATOR FOLLOW-UP this file cannot do for you — create the label:
+#   gh label create mutation-check -d "Run the differential mutation diagnostic on this PR"
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+
+permissions:
+  contents: read
+
+# One measurement per PR at a time; a newer push supersedes an in-flight run,
+# and the comment it would have edited is the one the newer run edits instead.
+concurrency:
+  group: mutation-delta-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  mutation-delta:
+    name: Mutation delta
+    if: >-
+      ${{ (github.event.action == 'labeled' && github.event.label.name == 'mutation-check')
+      || (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'mutation-check')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # mutation-delta.sh resolves a merge-base against the PR's base
+          # commit; a shallow clone does not contain one.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # EDIT ME: pin this to the version in your root package.json's
+      # `packageManager` field. `pnpm@latest` here would make a CI run depend on
+      # what was published this morning.
+      - name: Enable Corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.5.0 --activate
+
+      # The mutation runner and its test-runner plugin are devDependencies of
+      # the target package, and the run drives the real suite — so this needs
+      # the full workspace install, not a cached subset.
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Measure the delta and report it on the PR
+        env:
+          # `gh` reads GH_TOKEN; the job-scoped token carries the
+          # `pull-requests: write` granted above and nothing else.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: sh scripts/mutation-delta-ci.sh

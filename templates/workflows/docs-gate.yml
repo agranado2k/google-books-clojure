@@ -1,0 +1,33 @@
+name: Docs gate
+
+# The CI half of the docs gate. `.githooks/pre-push` runs the same
+# scripts/check.sh before every push, with a loud PUSH_WITHOUT_DOCS=1 hatch —
+# this job is what makes that hatch a DEFERRAL rather than an override. One
+# rule, two callers; nothing here re-implements the gate.
+#
+# No install step, no runtime: the gate is POSIX sh and git. That is the whole
+# reason a freshly created project can run it on day one, before it has chosen
+# a language.
+#
+# TEMPLATE. bootstrap.sh copies this into .github/workflows/ of YOUR project.
+# The kit itself does not run it (a template repo running its consumers' CI on
+# itself would be gating the wrong tree); the kit's own CI is
+# .github/workflows/kit-guards.yml.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  docs-gate:
+    name: Docs gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run the docs gate
+        run: sh scripts/check.sh

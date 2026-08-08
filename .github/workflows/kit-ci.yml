@@ -1,0 +1,86 @@
+name: Kit CI
+
+# The kit's OWN gate. It is not the gate a bootstrapped project inherits —
+# bootstrap.sh deletes this file, because a fresh project has no business
+# running the kit's acceptance test against the kit's shared layer.
+#
+# Three jobs, in increasing order of what they'd cost you to learn late:
+#
+#   1. harness      the docs-conformance validators' fixture tests. If these are
+#                   red, every downstream green is meaningless.
+#   2. portability  the PRD's success criterion, run as a check rather than
+#                   asserted in prose: "no product vocabulary in the core — the
+#                   kit runs the portability validator against ITS shared layer
+#                   in CI". `index.mjs .` at the kit root does exactly that: the
+#                   kit has no root AGENTS.md (only a .template), so the run
+#                   reduces to the article layer, and constitution/shared-
+#                   invariants.md is the one file on the portability list.
+#   3. demo         the end-to-end acceptance test: build a throwaway project
+#                   from this tree, bootstrap it, and prove the gate green — and
+#                   then prove it red, once per failure mode it claims to catch.
+#
+# Node is used here without apology: this is the kit's own repo, and the harness
+# is the one part of the framework that has a runtime. A consumer project that
+# never installs node still gets a working gate (scripts/check.sh's POSIX
+# fallback) — job 3 exercises that path too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  harness:
+    name: Harness fixture tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The harness is dependency-free plain ESM, so there is no install step.
+      - name: Validator fixture tests
+        run: node --test scripts/docs-conformance/test/*.test.mjs
+
+  portability:
+    name: Shared layer is portable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Portability validator against the kit's own shared layer
+        run: node scripts/docs-conformance/index.mjs .
+
+  demo:
+    name: Bootstrap demo (end-to-end)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kit acceptance test
+        run: sh tests/kit-demo.sh
+
+  adapters:
+    name: Adapters are well-formed and dormant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Nothing under adapters/ runs in this repo, and the kit has no Node
+      # project to run it against — which is exactly why the tree needs a check.
+      # This asserts what CAN be asserted from here: every shell file parses,
+      # every module parses, the config examples really set what the guards
+      # read, and bootstrap leaves the whole tree byte-identical and inert.
+      # What it cannot assert is listed in adapters/node-ts/INSTALL.md.
+      - name: Adapters acceptance test
+        run: sh tests/adapters-demo.sh

@@ -1,0 +1,138 @@
+#!/bin/sh
+# guards.config.sh — the node-ts ADAPTER's worked example.
+#
+# A filled-in replacement for the kit's `scripts/guards.config.sh`, for a pnpm
+# workspace of TypeScript packages and apps with Vitest as the unit runner.
+#
+#   cp adapters/node-ts/guards.config.sh.example scripts/guards.config.sh
+#
+# COPY ONLY IF YOUR LAYOUT MATCHES. Every pattern below is a real value from the
+# repo this framework was extracted from. Pasted into a repo of a different
+# shape it produces a guard that measures nothing while looking configured,
+# which is strictly worse than the unconfigured default (that one at least
+# prints a warning on every push).
+#
+# The reasoning for each value is in adapters/node-ts/README.md §1 — read that
+# before editing, not after.
+#
+# This file is DATA, not mechanism. The guards hold no knowledge of your layout;
+# it all lives here, in one reviewable file, so a change of policy is a diff a
+# human reads rather than an edit inside a script nobody re-reads.
+#
+# Sourced by: scripts/tdd-pairing-guard.sh (and its CI twin), and
+#             scripts/behavior-delta.sh.
+#
+# THIS FILE IS YOURS once copied. It is not part of the shared layer (see
+# VERSION) and no kit update overwrites it.
+
+# ---------------------------------------------------------------------------
+# 1. SOURCE — the production files whose change demands a test change
+# ---------------------------------------------------------------------------
+# An extended regular expression (grep -E) matched against repo-relative paths.
+#
+# KEEP THIS IN STEP WITH `include` IN vitest.config.ts. Nothing ties the two
+# together mechanically: a tree the runner covers but this pattern misses is
+# silently un-guarded, and that is the one failure mode that produces a green
+# push over untested code. Put a comment in vitest.config.ts pointing back here.
+#
+#   packages/<name>/src/           the workspace libraries
+#   apps/<name>/src/               deployables
+#   apps/<name>/app/(server|edit)/ the framework-routed tree, narrowed to the
+#                                  two directories that hold behaviour — routes,
+#                                  layouts and page components in the same tree
+#                                  are covered by the browser tier, not this one
+#   scripts/docs-conformance/      the docs gate's own validators, which run
+#                                  under `node --test`. A repo that guards its
+#                                  product but not its guards has a hole exactly
+#                                  where it matters most.
+#
+# `[^/]+` and not `.*`: an anchored single segment cannot be satisfied by a
+# nested `packages/x/node_modules/y/src/`.
+#
+# NOT included, deliberately: `scripts/*.sh`. Widening to shell would capture
+# every other script in the repo, most of which have no test tier — a rule
+# expansion with its own blast radius rather than a gap to patch in passing.
+# What covers the guards is their own suite (tests/tdd-pairing-guard*.test.sh).
+GUARD_SOURCE_RE='^(packages/[^/]+/src/|apps/[^/]+/src/|apps/[^/]+/app/(server|edit)/|scripts/docs-conformance/).*\.(ts|tsx|mjs)$'
+
+# Paths that match SOURCE but must NOT count as source.
+#
+# Test files are NOT listed here on purpose: the guard already subtracts
+# GUARD_TEST_RE from the source list before asking the pairing question, so a
+# copy of that rule here would be a second definition free to drift.
+#
+#   *.d.ts / *.min.js   declarations and build output — no behaviour to test
+#   index.ts            barrel files: pure re-exports. A barrel that gains a
+#                       line has moved no behaviour (stryker.config.mjs excludes
+#                       them for the same reason)
+#   docs-conformance/config.mjs
+#                       reviewable policy DATA, not mechanism. A file that is
+#                       READ rather than executed changes by human decision, not
+#                       by new behaviour, so editing it demands no test edit.
+#
+# Add your own config-as-data files here ONE AT A TIME, each with its reason. An
+# exclusion list that grows without reasons is how a guard gets switched off in
+# instalments.
+GUARD_SOURCE_EXCLUDE_RE='\.d\.ts$|\.min\.js$|(^|/)index\.ts$|^scripts/docs-conformance/config\.mjs$'
+
+# ---------------------------------------------------------------------------
+# 2. TEST — what counts as the paired test change
+# ---------------------------------------------------------------------------
+# Narrower than the kit's cross-ecosystem default, because this repo has exactly
+# two conventions: the Vitest suffix and Gherkin.
+#
+# Direction of error matters. A too-BROAD test pattern makes the guard more
+# forgiving and never more aggressive; a too-narrow one blocks honest pushes and
+# gets the guard deleted, and a deleted guard checks nothing. When unsure, err
+# broad and narrow it once you know what your repo actually names things.
+GUARD_TEST_RE='\.(test|spec)\.(ts|tsx|mjs)$|\.feature$'
+
+# ---------------------------------------------------------------------------
+# 3. CONTRACT ARTIFACTS — the surfaces behavior-delta.sh inventories
+# ---------------------------------------------------------------------------
+# One record per line: a human-readable label, a pipe, then one or more extended
+# regexes. behavior-delta.sh prints a section per surface with deltas on the
+# branch, and the SAME set drives its per-commit `refactor:`-that-is-not check.
+#
+# A contract artifact is a place where behavior is EXTERNALIZED and therefore
+# machine-visible. The test for a candidate path is one question: IF THIS FILE
+# CHANGES AND NOBODY LOOKS, WHO FINDS OUT AND HOW? "A consumer, in production"
+# means contract artifact. "The type-checker, in twelve seconds" does not.
+#
+# Keep the list SHORT. A human reads this report on every review; a surface list
+# matching half the repo produces a report nobody reads, which is worse than no
+# report because it looks like coverage.
+#
+# The first two records are the kit's own defaults and hold for any project
+# built on it. The six below them are this adapter's:
+#
+#   API surface     the document a consumer codes against — a change here is a
+#                   change to someone else's build. The SPEC, not the handler;
+#                   handlers are ordinary source the pairing guard covers.
+#   Persistence     a migration is behavior that runs once, in production, and
+#                   is not undone by reverting the commit. Both the ORM schema
+#                   and a raw migrations/ tree, because projects acquire the
+#                   second the moment the first cannot express something.
+#   Env contract    a new REQUIRED variable is a deployment change disguised as
+#                   a one-line diff: it compiles, CI has the value, the deploy
+#                   fails.
+#   HTTP posture    a CSP directive or a SameSite flag is security behavior with
+#                   no test that naturally fails when it is wrong — exactly the
+#                   profile of a change a human must confirm (invariant §5).
+#   Error semantics status code and body shape are API contract even though they
+#                   live in a library. Clients branch on them.
+#   Prompt surfaces if the product's surface IS prompt text, editing that text
+#                   is editing behavior and the compiler will never say so.
+BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/
+Architecture decisions|^docs/adr/
+API surface (OpenAPI / GraphQL / protobuf)|^docs/api/openapi\.yaml$|\.graphql$|\.proto$
+Persistence (schema + migrations)|^packages/db/|^prisma/schema\.prisma$|^migrations/|^docs/db-design\.md$
+Configuration (the env contract)|^packages/env/|\.env\.example$
+HTTP posture (headers, CSP, CORS)|^packages/headers/|^apps/[^/]+/middleware\.ts$
+Error semantics (the shared error model)|^packages/http/
+Agent-facing prompt surfaces|^apps/mcp/(src/(instructions|prompts|tools)|skill/)'
+
+# Executable specification files. behavior-delta flags these when EDITED inside
+# a structure-only commit: an edited scenario is an unambiguous behavior change,
+# while a newly added one is just added coverage.
+BEHAVIOR_DELTA_FEATURE_RE='\.feature$'

@@ -1,0 +1,64 @@
+# Domain glossary — Ubiquitous Language
+
+The registry of canonical terms for {{PROJECT_NAME}}. Use these spellings and
+meanings consistently across **code** (type names, function names, table names),
+commit messages, PR titles, ADRs, the diary, and conversations with agents.
+
+One name per concept. An agent given two names for one thing will invent a
+distinction between them.
+
+**Adding a term** — introduce it in the same change that first uses it in code.
+Say what it *is*, not what it does, and cross-reference the ADR or spec section
+that defines its behavior.
+
+**Changing a term** — rename across the whole codebase in a single change, and
+update this file in the same commit. Do **not** leave aliases: the point of a
+ubiquitous language is that there is exactly one name per concept.
+
+**Retiring a term** — keep the entry, mark it _(superseded by `NewName`)_, and
+say what replaced it. A deleted entry loses the fact that the old name ever
+meant something, which is exactly what a reader of old code needs.
+
+> **Source of truth.** This file is canonical for domain *language*. Where other
+> documents disagree on a name, this one wins and they are synced to it. They
+> still win on architecture — this carve-out is for naming only.
+
+---
+
+<!--
+Group terms by bounded context (or by module, or by subsystem — whatever your
+seams actually are). One `##` per context. Within a context, no particular
+order; alphabetical stops being useful past about thirty terms, and grouping by
+aggregate reads better.
+
+Entry shape:
+
+  - **Term** — what it is, in one or two sentences. Its kind (Aggregate root /
+    Entity / Value Object / read type / port / adapter). Where it is persisted,
+    if it is. Ref: <ADR-NNNN or spec section>.
+    - _Avoid_: <the near-synonym people reach for, and why it is wrong>
+
+Keep definitions short enough to read in a session-start scan. When one needs a
+page of explanation, that page is an ADR and the entry points at it.
+-->
+
+## <Context name>
+
+- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
+  - _Avoid_: <near-synonym> (<why>).
+
+## <Second context name>
+
+- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
+
+---
+
+## Words this project does not use
+
+<!--
+The other half of a ubiquitous language, and the half that is usually missing:
+the terms that are ambiguous here and are therefore banned. Each line names the
+banned word and the word to use instead.
+-->
+
+- **<banned word>** — ambiguous here (<why>). Use **<term>** or **<term>**.

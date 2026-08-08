@@ -1,0 +1,188 @@
+name: Prompt evals
+
+# EXAMPLE WORKFLOW — from the node-ts adapter. Inert where it sits: GitHub only
+# reads `.github/workflows/`. Copy it to `.github/workflows/prompt-evals.yml`
+# to activate, and read adapters/node-ts/evals/README.md first — the suite it
+# calls does not run until you generate fixtures from your own source.
+#
+# WHAT IT IS FOR: the prompt-eval tier over your agent-facing surfaces. A
+# one-line edit to a server instructions string or a tool description can move
+# agent behaviour dramatically, and no other gate in a repo would see it.
+#
+# PATH-SCOPED ON PURPOSE. It runs only when a PR actually touches a prompt
+# surface (or the suite that measures it), because it is likely the only
+# workflow you have that spends money per run.
+#
+# THREE OUTCOMES, NOT TWO — and this is the part most people get wrong. A job
+# that calls a paid provider can fail for a reason that has nothing to do with
+# the diff, and a workflow that cannot tell that apart goes permanently red,
+# which trains everyone to scroll past it — taking the real failures with it.
+#
+#   1. No key at all           → skip the eval half, notice, exit 0.
+#   2. Key present, unusable   → the suite ran but evaluated NOTHING (every call
+#                                a provider error, zero assertions executed).
+#                                Notice, exit 0 — an unfunded key or a rate
+#                                limit is not a prompt regression.
+#   3. Key present and usable  → assertion failures are REAL and stay red.
+#
+# Outcome 2 is read off the RESULT FILE (zero successes, zero failures, non-zero
+# errors), never guessed from the exit code, so it cannot swallow a genuine
+# failure. A PARTIAL outage stays red: the suite measured something, so its
+# verdict counts.
+#
+# NOT A REQUIRED CHECK. It gates nothing in any of the three states. A paid,
+# probabilistic job as a merge blocker is a decision to make deliberately and
+# later, if ever.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      # EDIT ME — every entry here should be a file the suite can actually
+      # observe. The example list below is the shape, not your paths.
+      #
+      # The prompt surfaces themselves: the instructions string and the
+      # tool/prompt descriptions.
+      - "apps/mcp/src/instructions.ts"
+      - "apps/mcp/src/tools.ts"
+      # Where the instructions are wired onto the server: a change here can stop
+      # the text reaching the client at all.
+      - "apps/mcp/src/server.ts"
+      # A real input, not a guess: if your tool schemas import enums from a
+      # domain package, an edit there changes the definitions the model is
+      # handed. Trace what your generated fixtures actually depend on.
+      - "packages/domain/src/**"
+      # The suite itself, and this workflow.
+      - "tests/evals/**"
+      - ".github/workflows/prompt-evals.yml"
+      #
+      # NAME YOUR EXCLUSIONS AND WHY, here, or the list quietly grows back.
+      # Anything the suite never loads into a prompt — a packaged skill file, a
+      # prompt template no case exercises — is deliberately absent: paying for a
+      # run on a file the suite cannot observe is pure cost with no signal. Add
+      # it back the day a case actually loads it.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prompt-evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prompt-evals:
+    name: Prompt evals
+    runs-on: ubuntu-latest
+    env:
+      # Keep the cache inside the workspace so actions/cache can persist it
+      # verbatim; promptfoo's default location is outside it.
+      PROMPTFOO_CACHE_PATH: ${{ github.workspace }}/.promptfoo-cache
+      PROMPTFOO_CACHE_ENABLED: "true"
+      # 14 days. A prompt-surface PR busts the key anyway, so a long TTL only
+      # helps unrelated re-runs.
+      PROMPTFOO_CACHE_TTL: "1209600"
+      PROMPTFOO_DISABLE_TELEMETRY: "1"
+      PROMPTFOO_DISABLE_UPDATE: "1"
+    steps:
+      - name: Is a provider key present?
+        id: key
+        env:
+          PROVIDER_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "${PROVIDER_API_KEY}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Prompt evals skipped::No provider key is readable from this job, so the eval suite did not run. The keyless checks below still ran; this job is green on purpose and gates nothing."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # promptfoo needs a recent Node. A repo whose `engines` field allows
+          # older ones can still be too old for this CLI, and it fails at
+          # startup with no obvious link to the version.
+          node-version: 22
+
+      - name: Enable Corepack + pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.5.0 --activate
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      # Runs with or without a key: proves the suite is LOADABLE in CI, not just
+      # on a developer's machine. This is the step that catches a `file://` that
+      # resolves locally and nowhere else.
+      - name: Validate the eval config (keyless)
+        run: pnpm evals:validate
+
+      - name: Restore provider response cache
+        if: steps.key.outputs.available == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .promptfoo-cache
+          key: promptfoo-cache-${{ runner.os }}-${{ hashFiles('tests/evals/**') }}
+          restore-keys: |
+            promptfoo-cache-${{ runner.os }}-
+
+      # pass^3: --repeat runs every case three times and the command exits
+      # non-zero if ANY trial fails, so a case only counts as passing if it
+      # passes all three. A prompt that works two times in three does not work.
+      #
+      # The exit code is CAPTURED rather than allowed to fail the step, so the
+      # classification step below can decide what it MEANT. `set +e` and no
+      # `set -e` anywhere — a bare `|| true` would lose the code entirely.
+      - name: Run the prompt evals
+        id: run
+        if: steps.key.outputs.available == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set +e
+          pnpm evals --no-progress-bar --output eval-results.json
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      # Did the suite EVALUATE anything, or did the provider refuse every call?
+      #
+      # `.results.stats` carries three counters: successes and failures are
+      # assertion outcomes; errors are calls that never produced a completion
+      # (auth, quota, network). "Zero assertions executed AND at least one
+      # error" is precisely the unusable-key signature, and it is the one case
+      # where a non-zero exit must not turn this job red.
+      - name: Did the suite actually evaluate?
+        if: ${{ steps.key.outputs.available == 'true' }}
+        env:
+          EVAL_EXIT: ${{ steps.run.outputs.exit_code }}
+        run: |
+          if [ ! -f eval-results.json ]; then
+            echo "::error title=Prompt evals::the run produced no eval-results.json (exit ${EVAL_EXIT}); cannot tell a provider outage from a real failure."
+            exit "${EVAL_EXIT:-1}"
+          fi
+
+          stats=$(jq -c '.results.stats // {}' eval-results.json)
+          successes=$(printf '%s' "$stats" | jq -r '.successes // 0')
+          failures=$(printf '%s' "$stats" | jq -r '.failures // 0')
+          errors=$(printf '%s' "$stats" | jq -r '.errors // 0')
+          echo "successes=${successes} failures=${failures} errors=${errors} exit=${EVAL_EXIT}"
+
+          if [ "$((successes + failures))" -eq 0 ] && [ "${errors}" -gt 0 ]; then
+            echo "::notice title=Prompt evals did not evaluate::Provider unavailable — the key is present but unusable (no credit, or rate limited), so all ${errors} calls came back as provider errors and ZERO assertions were executed. That is a funding/availability question, not a prompt regression. Exiting 0 so a billing problem does not read as a failing gate."
+            exit 0
+          fi
+
+          # Anything else is a real result: assertions ran, so the exit code
+          # means what it says.
+          exit "${EVAL_EXIT:-0}"
+
+      - name: Upload eval results
+        if: ${{ always() && steps.key.outputs.available == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-eval-results
+          path: eval-results.json
+          if-no-files-found: ignore

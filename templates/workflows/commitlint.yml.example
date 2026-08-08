@@ -1,0 +1,61 @@
+# Conventional Commits linting — A PLACEHOLDER, INERT ON PURPOSE.
+#
+# Note the `.example` suffix: GitHub Actions only reads `.yml`/`.yaml`, so this
+# file sits in .github/workflows/ doing nothing until you rename it:
+#
+#     git mv .github/workflows/commitlint.yml.example .github/workflows/commitlint.yml
+#
+# WHY IT SHIPS DISABLED. Every other gate in this kit is POSIX sh and git, which
+# a project has on day one. Commit linting is the exception: the reference
+# implementation (@commitlint) is a node package, and this kit does not decide
+# that your project uses node. Shipping it enabled would either fail on every PR
+# of a non-node project, or quietly no-op — and a gate that reports green while
+# not running is worse than no gate.
+#
+# WHY YOU PROBABLY WANT IT ANYWAY. The kit's commit convention is Conventional
+# Commits, and two things downstream READ the commit type rather than merely
+# preferring it: scripts/behavior-delta.sh keys its commit-separation check on
+# `refactor:` / `style:` claiming structure-only work, and release tooling
+# derives versions from the same types. An unparseable subject is not a style
+# nit there, it is a check that silently stops applying.
+#
+# WHAT TO DO IF YOU ARE NOT ON NODE: keep the rule, change the runner. Any
+# implementation that reads the PR's commit subjects and exits non-zero on a
+# non-conforming one satisfies this — a twenty-line shell script over
+# `git log --format=%s "$BASE_SHA..$HEAD_SHA"` is a perfectly honest version.
+#
+# The node version below is a starting point, not a recommendation: it assumes a
+# root package.json with commitlint and a commitlint config in it.
+
+name: Commit messages (Conventional Commits)
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    name: Lint PR commits
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history for the merge base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm ci --ignore-scripts
+
+      - name: Lint every commit in the PR
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: npx commitlint --from "$BASE_SHA" --to "$HEAD_SHA" --verbose

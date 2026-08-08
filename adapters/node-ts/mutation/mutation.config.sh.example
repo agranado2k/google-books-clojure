@@ -1,0 +1,74 @@
+#!/bin/sh
+# mutation.config.sh — policy for the differential mutation diagnostic.
+#
+#   cp adapters/node-ts/mutation/mutation.config.sh.example scripts/mutation.config.sh
+#
+# Same split as the kit's scripts/guards.config.sh, for the same reason: the
+# scripts are mechanism and hold no knowledge of your layout, and every
+# project-specific value lives here in one reviewable file. `mutation-delta.sh`
+# resolves this file as:
+#
+#   1. $MUTATION_CONFIG              explicit; a path that does not exist is an
+#                                    ERROR, never a silent fallback
+#   2. <repo root>/scripts/mutation.config.sh
+#   3. <dir of mutation-delta.sh>/mutation.config.sh
+#
+# THIS FILE IS YOURS. Not shared layer, never overwritten by a kit update.
+
+# ---------------------------------------------------------------------------
+# 1. SCOPE — the one package the diagnostic runs over
+# ---------------------------------------------------------------------------
+# START WITH ONE PURE PACKAGE, and this is not a formality. Pick the tree with
+# NO I/O and NO environment — a domain / pure-logic package — because there a
+# mutant costs a function call rather than a container. Mutation testing runs
+# the suite once per mutant; against a package that opens sockets or a database
+# the run is not slow, it is untenable.
+#
+# Widening the scope is a follow-up with its own cost calibration, not a
+# default. Measure the run before you add the second package.
+#
+# MUTATION_PKG_DIR   repo-relative directory of the package
+# MUTATION_PKG_NAME  the name in its package.json — what the package manager
+#                    filters on, which is NOT always the directory name
+MUTATION_PKG_DIR='packages/domain'
+MUTATION_PKG_NAME='domain'
+
+# ---------------------------------------------------------------------------
+# 2. WHAT IS MUTABLE inside that package
+# ---------------------------------------------------------------------------
+# The branch's changed files are filtered by these before they reach Stryker.
+#
+# KEEP IN STEP WITH `mutate` IN stryker.config.mjs. If the two disagree the
+# differential run measures a different surface from the full run, and the two
+# scores stop being comparable — which is the whole point of having both.
+#
+# `index.ts` is excluded for the same reason the TDD guard excludes it: a barrel
+# is re-exports, and a mutant in a re-export is noise.
+MUTATION_SRC_RE='\.ts$'
+MUTATION_SRC_EXCLUDE_RE='\.(test|spec)\.ts$|\.d\.ts$|(^|/)src/index\.ts$'
+
+# ---------------------------------------------------------------------------
+# 3. HOW TO INVOKE STRYKER
+# ---------------------------------------------------------------------------
+# Word-split by the script, so it must be a plain command prefix — no quoting,
+# no shell metacharacters. `%s` is replaced with MUTATION_PKG_NAME.
+#
+#   pnpm   pnpm --filter %s exec
+#   npm    npm --workspace %s exec --
+#   yarn   yarn workspace %s exec
+#   none   (single-package repo) leave it empty and run stryker from the package
+#
+# Whatever you choose, Stryker and its Vitest runner must be devDependencies of
+# THAT package — the differential run drives the real suite.
+MUTATION_EXEC='pnpm --filter %s exec'
+
+# ---------------------------------------------------------------------------
+# 4. WHERE STRYKER LEAVES ITS JSON REPORT
+# ---------------------------------------------------------------------------
+# Package-relative, and this is Stryker's DEFAULT json-reporter path.
+#
+# COUPLED TO stryker.config.mjs: if you ever set `jsonReporter.fileName` there,
+# the report lands somewhere else, this script finds nothing, and it takes the
+# "produced no report" branch — a green-looking skip, not an error. Change both
+# or neither.
+MUTATION_REPORT='reports/mutation/mutation.json'

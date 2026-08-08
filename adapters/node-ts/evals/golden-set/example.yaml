@@ -1,0 +1,126 @@
+# ONE ILLUSTRATIVE CASE FILE — two cases, one per polarity.
+#
+# READ THIS AS A SHAPE, NOT AS CONTENT. Both cases below assert things about a
+# fictional document-publishing tool surface. Against your tools they are noise:
+# delete them, and write the first real case the day you observe a real failure.
+#
+# In a grown suite these live in separate files by polarity/theme
+# (tool-selection.yaml, tool-selection-negative.yaml, …) so that "which polarity
+# is under-represented" is answerable at a glance. They are together here only
+# because two cases in two files would be a worse illustration.
+#
+# Every key under `metadata` is read by asserts/tool-selection.js. Every key is
+# also worth enforcing in your keyless smoke tier — that a case HAS a reference
+# solution, that `grounded_in` names files that exist, that polarity is one of
+# the two words — because a malformed case silently grades as something else.
+
+# ---------------------------------------------------------------------------
+# POSITIVE — the right tool should fire, with the right argument SHAPE
+# ---------------------------------------------------------------------------
+- description: republish under the same slug so the shared link survives
+  vars:
+    # One user turn, in the USER'S OWN WORDS. Do not sanitise a harvested
+    # failure into the phrasing that makes the right tool obvious — that
+    # rewrites the case into one the surface was already passing.
+    scenario: >-
+      I regenerated the Q3 revenue numbers. Publish the new version to the
+      report with slug `q3-revenue` — I already emailed that link to the client
+      this morning, so it has to keep working.
+  metadata:
+    polarity: positive
+
+    # The reference solution. Not "a tool call happened" — THIS tool.
+    expected_tools: [reports_upload]
+
+    # false ⇒ every tool in expected_tools must fire. Set true when the case has
+    # two genuinely defensible answers and you refuse to pick one arbitrarily.
+    expected_any_of: false
+
+    # Read-only lookups that are legitimate on the way. Checking what is already
+    # published before overwriting it is good behaviour, not a mistake, so it
+    # must cost nothing — or the suite teaches the model to act blind.
+    acceptable_tools: [reports_get, reports_list_versions]
+
+    # A hard fail at any score. Keep this list to calls that would be genuinely
+    # WRONG here, not merely unnecessary; the unnecessary ones are already
+    # penalised by restraint.
+    forbidden_tools: [reports_delete]
+
+    # The reference ARG SHAPE, never exact values. `update_slug` is the whole
+    # point of this case: without it the model publishes a NEW report at a new
+    # URL, the tool call still "succeeds", and the client's link dies. That is
+    # the class of failure a prompt eval exists to catch and a unit test cannot.
+    expected_args:
+      reports_upload:
+        required: [html, update_slug]
+        forbidden: []
+        equals: {}
+
+    # The shipped file(s) this case was drawn from — the text that SHOULD have
+    # prevented the failure. If you cannot name one, the fix is a prompt edit,
+    # not just a new case.
+    grounded_in:
+      - src/instructions.ts
+      - src/tools.ts
+
+    # Write this as the failure you SAW, not as a restatement of the case.
+    rationale: >-
+      Observed in dogfooding after the `update_slug` parameter description was
+      shortened: the model published a second report instead of a new version,
+      and the previously shared URL kept serving stale content. Goes red if that
+      description loses the "keeps the same URL" phrasing again.
+
+  # Optional, layered on top of the default code grader. Useful on cases with
+  # exactly one defensible answer, where an off-the-shelf tool-call metric adds
+  # a second independent opinion for free.
+  assert:
+    - type: tool-call-f1
+      value: [reports_upload]
+      threshold: 1
+
+# ---------------------------------------------------------------------------
+# NEGATIVE — the right behaviour is to ANSWER, not to act
+# ---------------------------------------------------------------------------
+# A suite of positives alone measures only eagerness, and eagerness is the
+# failure mode a sharpened tool description most easily creates. Hold negatives
+# to a SHARE of the suite (30% is a workable floor), not an absolute count.
+- description: answer the versioning question from the instructions, calling nothing
+  vars:
+    scenario: >-
+      Quick question before I hand you anything: if I upload a report again with
+      `update_slug` set to a slug I already published, does the shareable URL
+      change?
+  metadata:
+    polarity: negative
+
+    # `[]` means "nothing should fire". Coverage is 1 exactly when nothing
+    # outside acceptable_tools was called.
+    expected_tools: []
+
+    # Publishing a report in order to answer a question about publishing is the
+    # exact failure this case exists to catch, so it is forbidden rather than
+    # merely unexpected: a side effect the user never asked for is not a
+    # near-miss.
+    forbidden_tools: [reports_upload]
+
+    grounded_in:
+      - src/instructions.ts
+
+    rationale: >-
+      The instructions answer this outright, so the turn is answerable with zero
+      tool calls and zero side effects. Red here means the instructions text
+      stopped reaching the model, or stopped saying it.
+
+  # A content assertion on top of the grader: did it recall the RIGHT answer,
+  # not merely stay quiet? `icontains-any` over the phrasings a correct answer
+  # can take — checked against your runner's actual assertion set before you
+  # rely on it, since regex flags and provider-specific assertions vary.
+  assert:
+    - type: icontains-any
+      value:
+        - does not change
+        - doesn't change
+        - stays the same
+        - unchanged
+        - same URL
+      metric: instruction-recall

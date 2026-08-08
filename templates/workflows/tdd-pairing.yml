@@ -1,0 +1,79 @@
+name: TDD pairing
+
+# The CI half of the TDD pairing guard: a PR whose source changes carry no test
+# changes goes red here, exactly as `.githooks/pre-push` would have blocked the
+# push. Without this job, PUSH_WITHOUT_TESTS=1 is a LOCAL-ONLY bypass with
+# nothing downstream to catch it.
+#
+# ESCAPE HATCH: label the PR `tdd-exempt` and the job goes green with a
+# `::notice::`, so the override is a reviewable fact on the pull request rather
+# than an env var in someone's shell history.
+#
+# WHAT THIS GATE IS NOT: `pull_request` runs the PR's OWN copy of this workflow
+# and of both guard scripts, so a PR that edits them is checked by its edits —
+# the same stance scripts/tdd-pairing-guard.sh states about itself ("the rule
+# does NOT cover itself"). It guards honest mistakes, not an adversary, and the
+# blast radius of that is nil: the job holds a read-only token, installs
+# nothing, and makes no API call. Human review is what covers a diff that
+# weakens the guard.
+#
+# WHY ITS OWN WORKFLOW, and not a job inside your test workflow:
+#   1. The label hatch only works if the gate re-runs on `labeled`/`unlabeled`.
+#      Putting those triggers on the test workflow re-runs the whole suite every
+#      time any label is touched on any PR.
+#   2. The merge base needs `fetch-depth: 0`. Test workflows usually check out
+#      shallow, and deepening one taxes every run for this job's benefit.
+#   3. This job needs no dependency install at all — git, node, two shell
+#      scripts. Behind a frozen-lockfile install it would pay for nothing.
+#
+# TWO OPERATOR FOLLOW-UPS this file cannot do for you:
+#   · Create the label:
+#       gh label create tdd-exempt -d "TDD pairing guard: source changes may land without test changes on this PR"
+#     Until it exists the hatch is only reachable by creating it while applying it.
+#   · Add "TDD pairing" to your branch protection's required status checks. A
+#     gate nobody is required to pass is advisory. Worth doing after a run or
+#     two of real signal, not blind on the day you enable it.
+#
+# TEMPLATE. bootstrap.sh copies this into .github/workflows/ of YOUR project.
+# It stays INERT until you set GUARD_SOURCE_RE in scripts/guards.config.sh —
+# an unconfigured guard warns and passes rather than blocking everyone.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tdd-pairing-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tdd-pairing:
+    name: TDD pairing
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — the guard resolves `git merge-base BASE_SHA HEAD_SHA`,
+      # which a shallow clone cannot answer (it exits 2 and fails the job rather
+      # than guessing).
+      - name: Checkout (full history for the merge base)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Only for the label lookup inside the guard; nothing is installed. Absent
+      # node, the lookup fails CLOSED (not exempt), so this step can never turn
+      # a red gate green.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # GITHUB_EVENT_PATH is set by the runner — that is where the `tdd-exempt`
+      # label is read from, so this job needs no token and makes no API call.
+      - name: Source changes carry test changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: sh scripts/tdd-pairing-guard-ci.sh

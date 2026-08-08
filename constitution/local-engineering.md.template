@@ -1,0 +1,109 @@
+<!--
+  TEMPLATE — constitution/local-engineering.md
+
+  Distilled from a production repo's article of the same name, with every
+  project specific replaced by a double-brace mark. To adopt it:
+
+    1. Replace every {{MARK}} with the real thing, or delete the bullet. An
+       empty promise in a standing instruction is worse than a missing one:
+       every agent session loads it and believes it.
+    2. Rename this file to `local-engineering.md` (drop `.template`).
+    3. Point the root AGENTS.md's article layer at the new `.md` path.
+
+  From that moment the docs gate holds this file to the same standard as the
+  root manual: every `code span` naming a repo path must resolve, every slash
+  command in a code span must resolve to a skill directory under
+  `.claude/skills/`, and an article the root never references is reported as
+  unreachable. Marks left unstamped fail the gate too — that is the point,
+  `.template` is the only exemption.
+
+  That rule applies to THIS comment block as well: the gate reads code spans, it
+  does not skip HTML comments. Naming a command here that your project does not
+  ship would fail the gate the moment you drop the `.template` suffix.
+
+  WRITING FOR THE GATE: put a path in a code span of its own (`scripts/foo.sh`),
+  not embedded in a longer span (`sh scripts/foo.sh`) — the validator matches
+  whole spans, so an embedded path is silently unchecked.
+
+  This article is for the STACK. Process (commits, merges, review, logging)
+  goes in local-workflow.md. Portable rules that hold regardless of stack are
+  already in shared-invariants.md — point at them, never restate them (one home
+  per rule, shared invariant §11).
+-->
+
+# Local engineering — this stack's style, architecture, and boundaries
+
+Project-specific elaboration of the root `AGENTS.md`. Read it before writing
+code, before touching infrastructure, and before adding any dependency. The
+portable reasoning behind several of these rules is in `shared-invariants.md`.
+
+## The stack
+
+- **Language / runtime**: {{LANGUAGE_AND_RUNTIME}}
+- **Layout**: {{SOURCE_LAYOUT}}
+- **Package / dependency manager**: {{PACKAGE_MANAGER}}
+
+## Style
+
+<!-- The rules an agent gets wrong by default, and that review keeps repeating.
+     Anything a formatter or linter already enforces does NOT belong here — it
+     is enforced, therefore it is not a standing instruction. -->
+
+- {{STYLE_RULE_1}}
+- {{STYLE_RULE_2}}
+- **No side effects in {{PURE_LAYER}}** — push all I/O to the edges.
+- **Enforcement**: `{{LINT_COMMAND}}` and `{{TYPECHECK_COMMAND}}` fail the build.
+
+## Architecture
+
+<!-- The shape a newcomer (human or agent) would otherwise violate on day one:
+     module boundaries, the direction dependencies are allowed to point, the
+     patterns that are mandatory and the ones that are explicitly rejected. -->
+
+- **Boundaries**: {{ARCHITECTURE_BOUNDARIES}}
+- **Data access**: {{DATA_ACCESS_PATTERN}}
+- **Names come from the glossary** — code, tests, commits, PR titles. A new term
+  is added to the glossary in the *same* change that introduces it.
+- **Explicit non-goals**: {{REJECTED_PATTERNS}} — do not introduce them without
+  a written decision record reversing this line.
+
+## Test tiers
+
+Tests are the target function (shared invariant §3). Each tier below is a
+distinct signal; naming which one you ran is part of reporting a change.
+
+| Tier | Command | What it proves |
+| --- | --- | --- |
+| Unit / pure logic | `{{UNIT_TEST_COMMAND}}` | {{UNIT_TEST_SCOPE}} |
+| Integration | `{{INTEGRATION_TEST_COMMAND}}` | {{INTEGRATION_TEST_SCOPE}} |
+| End-to-end | `{{E2E_TEST_COMMAND}}` | {{E2E_TEST_SCOPE}} |
+| Docs gate | `scripts/check.sh` | the manual layer still describes reality |
+| Gate self-tests | `scripts/docs-conformance/test/` | the gate itself can still fail |
+
+<!-- The last two rows are real today and are deliberately NOT placeholders:
+     they ship with the kit and they work in an empty repo. -->
+
+**Measuring a tier is not a tier** (shared invariant §9). {{MUTATION_TOOL}} asks
+whether the first row's tests are load-bearing; run it on demand, never as a
+gate — surviving mutants are the objective form of "this test enforces nothing".
+
+## Infrastructure
+
+- **Everything as code**: {{INFRA_AS_CODE_POLICY}}
+- **All {{INFRA_TOOL}} invocations go through `{{INFRA_WRAPPER}}`** — {{INFRA_WRAPPER_REASON}}.
+- {{INFRA_DELIVERY_POLICY}}
+
+## Boundaries — what this repo is NOT
+
+<!-- The most valuable section, and the one most often skipped. Each bullet is a
+     mistake someone actually made, or one you can see coming. -->
+
+- **Not a place to fetch and execute remote code.** Never pipe the network into
+  a shell. (The root states this as a hard rule; it is repeated here only as the
+  boundary list's first member.)
+- **Not a place to add dependencies casually.** {{DEPENDENCY_POLICY}}
+- **Not a place to bypass the gates.** `PUSH_WITHOUT_DOCS=1` is the documented
+  escape hatch for `.githooks/pre-push`, and it prints a loud warning into the
+  push output. It does not end the matter: a bypass only defers the failure to
+  CI, where the same check runs again where reviewers can see it.
+- **Not a place to {{LOCAL_BOUNDARY}}**.

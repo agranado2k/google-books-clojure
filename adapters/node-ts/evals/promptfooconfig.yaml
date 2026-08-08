@@ -1,0 +1,57 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# EXAMPLE — the node-ts adapter's prompt-eval suite. Read README.md in this
+# directory before copying anything.
+#
+# THIS DOES NOT RUN AS SHIPPED, on purpose: `fixtures/instructions.txt` and
+# `fixtures/tools.json` are GENERATED from your own source and are deliberately
+# absent here. A suite that ran immediately would be measuring invented text.
+#
+# Run (once wired):
+#   promptfoo validate                 no key, no spend — does the suite load?
+#   promptfoo eval --repeat 3          the real thing; needs a provider key
+#
+# Evals are to these prompts what tests are to code: a one-line edit to a tool
+# description can move agent behaviour dramatically, and nothing else in a
+# repo would catch it.
+description: Prompt-surface evals — EXAMPLE, replace with your own description
+
+prompts:
+  # System message = your shipped instructions string; user message = the
+  # scenario. Generated fixtures, never hand-copied text — a suite that
+  # measures a paraphrase measures nothing that ships.
+  - file://prompts/client.js
+
+providers:
+  # The model acts as a client holding the REAL tool definitions, so "which tool
+  # fires" is a measurement of the shipped descriptions rather than of a
+  # summary of them.
+  #
+  # EDIT ME: pick your provider and model. A cheap-but-capable generator is the
+  # right default — cheap enough for a per-PR gate, capable enough that a
+  # failure indicts the prompt rather than the model.
+  - id: anthropic:claude-sonnet-4-5
+    label: client
+    config:
+      max_tokens: 2048
+      # GENERATED from your tool registrations. See README.md § Before this runs.
+      tools: file://fixtures/tools.json
+      # `auto`, deliberately: forcing a tool call would make every negative case
+      # unmeasurable, and negative cases are what keep the suite from measuring
+      # only eagerness.
+      tool_choice:
+        type: auto
+
+defaultTest:
+  assert:
+    # Code-graded, on EVERY case. Outcomes not paths, with partial credit.
+    # Never an LLM judge for a decidable question.
+    - type: javascript
+      value: file://asserts/tool-selection.js
+      metric: tool-selection
+
+tests:
+  # EDIT ME: one file per polarity/theme as the set grows. Splitting by theme
+  # rather than piling into one file is what makes "which polarity is
+  # under-represented" answerable at a glance.
+  - file://golden-set/example.yaml

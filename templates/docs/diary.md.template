@@ -1,0 +1,102 @@
+# Development diary
+
+> Living history of the {{PROJECT_NAME}} build. The **Current state** block at the
+> top is the agent re-orientation summary — read it first when picking up the
+> project. Below it: forward-chronological entries, newest at the bottom.
+
+---
+
+## Current state — {{BOOTSTRAP_DATE}}
+
+<!--
+Update this block IN PLACE. It is the only part of this file that is edited
+rather than appended to: it answers "where is this project right now?" for an
+agent (or a human) opening a fresh session, and a stale answer here poisons
+every session that reads it. Entries below are append-only.
+
+Keep it to facts an agent cannot cheaply derive: the phase, what is live, what
+is in flight. Do not restate the README.
+-->
+
+| Field | Value |
+| --- | --- |
+| **Phase** | Just bootstrapped from the agentic-sdlc kit. Nothing built yet. |
+| **Repo** | `<path on disk>` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
+| **Remote** | `<git remote URL>` |
+| **Last commit on `main`** | `<sha>` — `<what it landed>` |
+| **Deployed / live** | Nothing yet. |
+| **Active worktrees** | None. |
+| **Spec status** | No spec yet. |
+
+### Open questions / unresolved decisions
+
+<!--
+Things that are genuinely undecided, one bullet each, with enough context that
+future-you can decide without re-deriving the problem. Strike a line through or
+mark **RESOLVED <date>:** in place when it is settled — deleting it loses the
+record that it was ever open.
+-->
+
+- _None yet._
+
+### Memory pointers for future-me
+
+<!--
+The half-dozen facts you keep re-learning. Not documentation — pointers at it.
+-->
+
+- **The diary is the orientation document.** Read this `Current state` block at
+  session start; everything below it is history.
+- **The spec wins** in disputes. When the diary and the spec disagree, the spec
+  is the contract and the diary is the log.
+- **Decisions live in `docs/adr/`**, not here. A diary entry may *announce* a
+  decision, but the ADR is the record.
+- **Terms live in `docs/domain-glossary.md`.** One name per concept, everywhere.
+
+### Update protocol
+
+<!--
+Shared invariant §8: a rule nothing checks decays into a lie. This protocol is
+the cheapest honest form of "when does the diary get written?" — keep it short
+enough that it is actually followed, and make the triggers observable events
+rather than feelings.
+-->
+
+- **Phase milestone reached** → append a new dated entry below.
+- **ADR added, decision reversed, or vendor changed** → append a new dated
+  entry; do **not** edit old entries.
+- **Worktree created for a non-trivial feature** → note it in the next entry;
+  remove it from the active list when it merges.
+- **Infrastructure changed** → append an entry naming the environment, the size
+  of the change, and what moved.
+- **Anything above happened** → also refresh the `Current state` block in place.
+
+---
+
+## Entries
+
+<!--
+Forward-chronological, newest at the BOTTOM (so reading top-to-bottom reads the
+project's history in order). One `###` heading per entry:
+
+    ### YYYY-MM-DD — <headline: what changed, not what you did>
+
+Write what was decided and why, not a commit log — `git log` already exists.
+Never edit a past entry; correct it with a new one that references it.
+-->
+
+### {{BOOTSTRAP_DATE}} — Bootstrapped from the agentic-sdlc kit
+
+{{PROJECT_DESCRIPTION}}
+
+The repo was created from the `agentic-sdlc` template and personalized by
+`bootstrap.sh`: the root `AGENTS.md` agent manual, the portable
+`constitution/shared-invariants.md` rulebook, the `scripts/check.sh` docs gate
+wired to `.githooks/pre-push`, and this documentation set (diary, ADR index +
+MADR template, domain glossary, PR template).
+
+The shared layer taken is recorded in `VERSION`; `UPDATING.md` is the recipe for
+moving it forward when the kit does.
+
+First real decisions go in `docs/adr/`; first real progress goes below this
+line.

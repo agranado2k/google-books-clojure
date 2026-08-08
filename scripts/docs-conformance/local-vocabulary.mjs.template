@@ -1,0 +1,38 @@
+// Local vocabulary — the words that must NOT appear in the shared layer.
+//
+// `bootstrap.sh` stamps this template into `local-vocabulary.mjs`, seeding it
+// with your project name. `config.mjs` picks that file up if it exists and
+// turns each entry into a portability deny-list rule, so the very first thing
+// the guard protects you from is your own product name leaking into the file
+// whose only job is to be copyable.
+//
+// This file stays a `.template` in the kit itself: the kit has no product, and
+// an empty local list is the correct reading of that.
+//
+// Each entry is data, not a regex — terms are escaped for you, matched
+// case-insensitively on word boundaries, across the whole file (prose included,
+// because names leak in sentences, not in code spans).
+//
+//   { id, terms: [...], reason }
+//
+// `reason` is shown to whoever trips the rule, so write the fix, not the rule:
+// say where the sentence should have gone, not that it was denied.
+
+export default [
+	{
+		id: "product-name",
+		terms: ["{{PROJECT_NAME}}"],
+		reason:
+			"This project's own name. A product name breaks the verbatim copy on line one — move the sentence into a local-* article and state the rule abstractly in the shared file.",
+	},
+
+	// Add the rest of your vocabulary as it appears. Suggested categories:
+	//
+	//   { id: "service-name",  terms: ["billing-api", "ingest-worker"], reason: "..." },
+	//   { id: "org-name",      terms: ["Acme", "acme-corp"],            reason: "..." },
+	//   { id: "internal-term", terms: ["Widget", "Widgetization"],      reason: "..." },
+	//
+	// A term that is also an ordinary English word (a one-word product name like
+	// "Stream" or "Pulse") will fire on prose. Either accept the noise or scope
+	// the term more tightly — do not delete the entry and call it clean.
+];

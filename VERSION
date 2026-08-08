@@ -1,0 +1,59 @@
+# agentic-sdlc — shared-layer manifest
+#
+# The SHARED LAYER is the part of this kit that is copied VERBATIM into your
+# project and is not yours to edit. It carries a version so that a project
+# bootstrapped from kit 0.1.0 can later be diffed against kit 0.3.0 and told
+# exactly what moved. `UPDATING.md` is that recipe; this manifest is the anchor
+# it diffs against.
+#
+# Everything NOT listed here is yours from the moment bootstrap stamps it:
+# AGENTS.md (and the CLAUDE.md / GEMINI.md shims beside it), README.md,
+# docs/diary.md, docs/adr/, docs/domain-glossary.md, your adapters, the
+# .github/PULL_REQUEST_TEMPLATE.md — and, importantly, the POLICY files, which
+# are meant to grow with your repo:
+#
+#   scripts/docs-conformance/config.mjs            what the docs gate enforces
+#   scripts/docs-conformance/local-vocabulary.mjs  your product's vocabulary
+#   scripts/docs-conformance/test/                 fixture tests; extend freely
+#   scripts/guards.config.sh                       the guards' view of your layout
+#
+# Edit those freely — the whole point of stamping a template is that the copy
+# is then yours.
+#
+# THIS FILE IS COPIED WHOLESALE during an update (see UPDATING.md step 5): it
+# carries no project-specific content, only which release you are on and what
+# that release covers. It is deliberately not listed under `files:` — a manifest
+# cannot be an entry in itself.
+#
+# Versioning, pre-1.0: the MINOR bumps whenever the set of shared files or their
+# content changes, so a consumer can always ask "is my layer byte-identical to
+# the release I claim?" and get a yes/no. There is no patch-level for prose.
+# The split is deliberate: the validator ENGINE is shared because a fix to it
+# should reach every project, while the RULES are local because they are the
+# thing each project must own and review.
+#
+# `scripts/check.sh` verifies every file below still exists.
+
+# 0.3.0 — the manual became AGENTS.md. Two shared-layer files changed content:
+# scripts/check.sh now requires AGENTS.md as the root manual, and the
+# claude-md-refs validator defaults to it and gained the `shim-invalid` rule for
+# the tool entry points beside it. No file joined or left the layer.
+shared-layer: 0.3.0
+
+# NOT shared layer, and deliberately so: scripts/guards.config.sh. It is the
+# only file the guards read policy from, and its whole purpose is to be edited
+# locally. Keeping mechanism shared and policy local is what lets the guard
+# scripts stay byte-identical to the kit's copies.
+
+files:
+  constitution/shared-invariants.md
+  UPDATING.md
+  scripts/guards.lib.sh
+  scripts/tdd-pairing-guard.sh
+  scripts/tdd-pairing-guard-ci.sh
+  scripts/behavior-delta.sh
+  scripts/check.sh
+  scripts/docs-conformance/index.mjs
+  scripts/docs-conformance/context.mjs
+  scripts/docs-conformance/runner.mjs
+  scripts/docs-conformance/validators/claude-md-refs.mjs

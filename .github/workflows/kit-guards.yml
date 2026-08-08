@@ -1,0 +1,59 @@
+name: Kit — guards
+
+# THE KIT'S OWN CI, not a consumer's. The workflows a bootstrapped project gets
+# live in templates/workflows/ and are deliberately NOT active here: this repo is
+# a template, so running the consumer gates against its own tree would gate the
+# wrong thing (the kit has an AGENTS.md.template, not an AGENTS.md, and no
+# configured source globs — both gates are designed to be inert or red here).
+#
+# What IS the kit's business is that the guards it ships work. That is what this
+# job runs: the three guard test tiers, plus the end-to-end demo, which builds a
+# throwaway consumer from this tree, bootstraps it, and drives real `git push`
+# through the real hook.
+#
+# Scope note: this file covers the K3 guards only. Other kit-CI concerns (the
+# docs-conformance harness, the constitution's portability validator) get their
+# own workflow files rather than jobs here — separate files so separate work
+# streams do not collide on one YAML.
+#
+# No install step and no runtime: everything here is POSIX sh and git, which is
+# the same claim the kit makes to its consumers. Node is present on the runner
+# and the CI guard's label lookup uses it; nothing installs it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  guards:
+    name: Guard test tiers + demo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: tdd-pairing-guard.sh
+        run: sh tests/tdd-pairing-guard.test.sh
+
+      - name: tdd-pairing-guard-ci.sh
+        run: sh tests/tdd-pairing-guard-ci.test.sh
+
+      - name: behavior-delta.sh
+        run: sh tests/behavior-delta.test.sh
+
+      # Not a guard, but the same shape and the same risk profile: a script that
+      # deletes branches and worktrees. Its fixtures build real repos with real
+      # bare remotes and real linked worktrees.
+      - name: worktree-cleanup.sh
+        run: sh tests/worktree-cleanup.test.sh
+
+      # Bootstraps a throwaway consumer in a temp dir and pushes at a real bare
+      # remote through the real hook. It sets its own committer identity and
+      # hooks path per fixture, so it needs nothing from the runner's git config.
+      - name: End-to-end guards demo
+        run: sh tests/guards-demo.sh

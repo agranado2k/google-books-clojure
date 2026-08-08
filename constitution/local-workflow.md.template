@@ -1,0 +1,122 @@
+<!--
+  TEMPLATE — constitution/local-workflow.md
+
+  Distilled from a production repo's article of the same name, with every
+  project specific replaced by a double-brace mark. To adopt it:
+
+    1. Replace every {{MARK}} with the real thing, or delete the bullet. A
+       process rule nobody enforces decays into a lie (shared invariant §8), and
+       an unstamped mark is a rule that was never written at all.
+    2. Rename this file to `local-workflow.md` (drop `.template`).
+    3. Point the root AGENTS.md's article layer at the new `.md` path.
+
+  From that moment the docs gate holds this file to the same standard as the
+  root manual — see the sibling engineering template for the writing rules that
+  keep the gate able to check you.
+
+  This article is for PROCESS. Stack detail goes in local-engineering.md.
+  Portable rules already stated in shared-invariants.md get pointed at, never
+  restated (one home per rule, shared invariant §11).
+-->
+
+# Local workflow — commits, merges, review, docs, the log
+
+Project-specific elaboration of the root `AGENTS.md`'s process rules. The root
+carries the binding one-liners; this article carries the detail you need when
+you are actually doing the thing.
+
+## Commits
+
+Conventional Commits. The root states the format; this is the practice around it.
+
+- Type is one of `feat` `fix` `docs` `style` `refactor` `perf` `test` `build`
+  `ci` `chore` `revert`, optionally `(scope)`, then `: `, then a subject ≤100
+  characters.
+- Release mapping: `feat` → minor, `fix`/`perf` → patch, `BREAKING CHANGE:` in
+  the body → major.
+- **Enforcement**: {{COMMIT_LINT_MECHANISM}}.
+  <!-- e.g. a commit-msg hook at write time plus a CI job re-linting every
+       commit in the pull request. Two seams, because the local one is bypassable. -->
+- **Curate your commits before opening the PR** so the landed history reads
+  cleanly. A "fix typo" or "address review" commit gets squashed locally first.
+- **Refactor-only and behavior-changing work never share a commit**
+  (`shared-invariants.md` §10). Checked rather than asserted: {{COMMIT_SEPARATION_CHECK}}.
+
+## Merging to `{{DEFAULT_BRANCH}}`
+
+- **Method**: {{MERGE_METHOD}}.
+  <!-- Say which button, and why. If commit signing is required, say which merge
+       methods preserve signatures — that constraint is the usual reason a repo
+       forbids one of them. -->
+- **Rejected**: {{REJECTED_MERGE_METHOD}} — {{REJECTED_MERGE_REASON}}.
+- **The merge action is human** (shared invariant §7). No agent, bot, or
+  automation lands a change. An agent brings a PR to one click away and stops —
+  `/pr-iterate` drives a PR to green and explicitly never merges. When you have
+  decided a batch should land, `/merge-train` is you delegating the *mechanics*
+  of that decision, never the decision.
+- Branch protection / required checks: {{REQUIRED_CHECKS}}.
+- After a batch lands, `/worktree-cleanup` prunes the merged worktrees and
+  fast-forwards the root checkout.
+
+## Before you push
+
+1. `scripts/check.sh` — the docs gate. `.githooks/pre-push` runs it for you.
+2. {{PRE_PUSH_EXTRAS}}
+   <!-- Other local guards: a test-pairing guard, a formatter check, a
+        branch-name check. Each one needs the same treatment as the docs gate:
+        a script that owns the rule, a hook that only calls it, and a CI twin so
+        a local bypass only defers the failure. -->
+3. CI re-runs the same checks: {{CI_CHECKS}}.
+
+### The docs-trigger matrix
+
+The mapping from "what you changed" to "what must change with it". This table is
+the executable form of documentation-as-contract: if a row is not enforced by a
+check, say so in the row rather than pretending.
+
+| When you change… | You must also update… |
+| --- | --- |
+| {{TRIGGER_SOURCE_1}} | {{TRIGGER_TARGET_1}} |
+| {{TRIGGER_SOURCE_2}} | {{TRIGGER_TARGET_2}} |
+| A skill, hook, or command | the root `AGENTS.md` (or the article that owns the rule) |
+| Any manual layer (root, article, or nested) | the other layers, so one home per rule survives: a root rule that grew gets its own article; an article rule that became binding gets promoted to the root. Never leave the same rule in two homes |
+| `constitution/shared-invariants.md` | **nothing here** — it is shared layer. A local exception goes in *this* article; the shared copy stays byte-identical to the kit's |
+
+## Review
+
+- **Two axes, never merged** (shared invariant §5). Standards findings are
+  verifiable from the diff and may be fixed autonomously by an agent; behavior
+  findings are not decidable from the diff and go to a human as an explicit
+  confirm-list. Never let a behavior question ride into an autonomous fix loop
+  dressed as a standards nit. `/review-pr` is that split, executable: its §5
+  severity report is axis one, its §5b confirm-list is axis two, and
+  `scripts/behavior-delta.sh` supplies the grounded candidate list for the
+  second from the contract artifacts named in `scripts/guards.config.sh`.
+- **Automated review**: {{REVIEW_AUTOMATION}}. Bot review is {{REVIEW_BINDING}}.
+- **Fresh context per phase** (shared invariant §4): the reviewer must not see
+  the implementation history. A reviewer who has read the author's narrative
+  reviews the narrative instead of the diff.
+
+## Decision records
+
+Decisions live in `{{ADR_DIR}}`, one file per decision, indexed by
+`{{ADR_INDEX}}`, which is updated in the same change.
+
+- When a decision is reversed, **do not edit the old record**: write a new one
+  and mark the old one superseded.
+- **Decision content never goes in the log.** The log is chronological; it may
+  reference a decision by number but is never the source of truth for one.
+
+## The log
+
+Append a dated entry to `{{LOG_PATH}}` when **you** finish work that materially
+changes state:
+
+- A milestone reached, a decision recorded or reversed, a dependency or vendor
+  changed.
+- Infrastructure applied — record the environment and a summary of the diff.
+- A structural change to the agent manual itself, this article layer included.
+
+Never edit old entries. If the log contradicts the specification, the
+specification wins — flag the contradiction in your new entry rather than
+quietly rewriting history.
