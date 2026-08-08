@@ -1,12 +1,12 @@
 # Development diary
 
-> Living history of the {{PROJECT_NAME}} build. The **Current state** block at the
+> Living history of the Google Books (Clojure) build. The **Current state** block at the
 > top is the agent re-orientation summary — read it first when picking up the
 > project. Below it: forward-chronological entries, newest at the bottom.
 
 ---
 
-## Current state — {{BOOTSTRAP_DATE}}
+## Current state — 2026-08-08
 
 <!--
 Update this block IN PLACE. It is the only part of this file that is edited
@@ -85,9 +85,9 @@ Write what was decided and why, not a commit log — `git log` already exists.
 Never edit a past entry; correct it with a new one that references it.
 -->
 
-### {{BOOTSTRAP_DATE}} — Bootstrapped from the agentic-sdlc kit
+### 2026-08-08 — Bootstrapped from the agentic-sdlc kit
 
-{{PROJECT_DESCRIPTION}}
+Library that allows the user search and bookmark books via Gooogle books API"
 
 The repo was created from the `agentic-sdlc` template and personalized by
 `bootstrap.sh`: the root `AGENTS.md` agent manual, the portable

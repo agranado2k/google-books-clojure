@@ -21,7 +21,7 @@
 export default [
 	{
 		id: "product-name",
-		terms: ["{{PROJECT_NAME}}"],
+		terms: ["Google Books (Clojure)"],
 		reason:
 			"This project's own name. A product name breaks the verbatim copy on line one — move the sentence into a local-* article and state the rule abstractly in the shared file.",
 	},

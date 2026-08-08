@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-Each ADR captures **one** architectural decision for {{PROJECT_NAME}}, in
+Each ADR captures **one** architectural decision for Google Books (Clojure), in
 [MADR format](https://adr.github.io/madr/). The record is the contract; the
 development chronology lives in `docs/diary.md`.
 

@@ -1,6 +1,6 @@
 # Domain glossary — Ubiquitous Language
 
-The registry of canonical terms for {{PROJECT_NAME}}. Use these spellings and
+The registry of canonical terms for Google Books (Clojure). Use these spellings and
 meanings consistently across **code** (type names, function names, table names),
 commit messages, PR titles, ADRs, the diary, and conversations with agents.
 

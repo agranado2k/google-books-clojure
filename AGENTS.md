@@ -1,6 +1,6 @@
-# {{PROJECT_NAME}} — agent operating manual
+# Google Books (Clojure) — agent operating manual
 
-{{PROJECT_DESCRIPTION}}
+Library that allows the user search and bookmark books via Gooogle books API"
 
 Binding for any LLM-driven agent working in this repo. This file is the **root
 layer** of a layered constitution: orientation, the hard rules, and the command
