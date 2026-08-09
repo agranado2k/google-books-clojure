@@ -97,7 +97,8 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 #   Agent-facing prompt surfaces|^prompts/|^skills/
 # -----------------------------------------------------------------------------
 BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/
-Architecture decisions|^docs/adr/'
+Architecture decisions|^docs/adr/
+Persistence (schema + migrations)|^resources/migrations/'
 
 # Executable specification files. behavior-delta flags these when EDITED inside a
 # structure-only commit: an edited scenario is an unambiguous behavior change,

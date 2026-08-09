@@ -20,7 +20,11 @@
 
 (def ^:private timeouts
   "pgjdbc connection properties, in seconds. Every wait is bounded so that an
-  unreachable database fails fast instead of pinning a request thread."
+  unreachable database fails fast instead of pinning a request thread.
+
+  next.jdbc retries a failed connection once, so the wall-clock ceiling is
+  twice these values (measured: 10s here, against the driver's own 20s
+  default). See ADR-0003 clause 5."
   {:connectTimeout 5
    :loginTimeout 5
    :socketTimeout 5})

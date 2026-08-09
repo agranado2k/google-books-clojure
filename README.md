@@ -21,7 +21,39 @@ git config core.hooksPath .githooks
 sh scripts/check.sh
 ```
 
-<!-- Add the real build/test/run commands here as soon as there is a stack. -->
+## Running it
+
+```sh
+# Run the service locally, database-less.
+DB_OPTIONAL=true clojure -M -m books.server
+
+# Run it against a local Postgres (the same one the tests use).
+docker run -d --rm --name books-test-pg -p 5544:5432 -e POSTGRES_PASSWORD=test postgres:16
+DATABASE_URL=postgresql://postgres:test@localhost:5544/postgres clojure -M -m books.server
+
+# The test suite. It needs that Postgres container running.
+clojure -X:test
+
+# Build the deployable uberjar (target/app.jar).
+clojure -T:build uber
+```
+
+`GET /health` answers JSON: `200 {"status":"ok","db":"ok"}` when the database
+is reachable, `503 {"status":"degraded","db":"unreachable"}` when it is not,
+and `db: "not-configured"` when no `DATABASE_URL` is set — 503 by default, 200
+under `DB_OPTIONAL=true`.
+
+### Environment contract
+
+| Variable | Required | Default | What it does |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | yes, unless `DB_OPTIONAL=true` | — | The database, in libpq form: `postgresql://user:password@host:port/dbname` (`postgres://` is accepted too). Query parameters — `sslmode` included — are passed to the driver unchanged. Railway injects this. Migrations run at boot against it, and a failed migration or an unreachable database **crashes the boot** deliberately (ADR-0003). |
+| `DB_OPTIONAL` | no | `false` | `true` makes running without a `DATABASE_URL` a healthy state. Anything else, including unset, makes a missing `DATABASE_URL` a 503 — so a deploy that silently loses the variable fails its health check. |
+| `PORT` | no | `3000` | The HTTP port; the server binds `0.0.0.0`. Railway injects this. |
+| `TEST_DATABASE_URL` | no | `postgresql://postgres:test@localhost:5544/postgres` | Tests only — where the suite finds its Postgres. |
+
+Credentials reach the driver as db-spec map values and are never assembled into
+a JDBC URL string; that is a binding rule, not a preference (ADR-0003 clause 2).
 
 ## How this repo is run
 
