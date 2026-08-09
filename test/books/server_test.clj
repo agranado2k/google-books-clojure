@@ -1,6 +1,7 @@
 (ns books.server-test
   (:require [books.server :as server]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]]
+            [jsonista.core :as json]))
 
 (deftest port-uses-env-value
   (testing "uses the PORT value when present"
@@ -15,5 +16,6 @@
     (let [jetty (server/start 0)
           http-port (.getLocalPort (aget (.getConnectors jetty) 0))]
       (try
-        (is (= "ok" (slurp (str "http://localhost:" http-port "/health"))))
+        (let [body (slurp (str "http://localhost:" http-port "/health"))]
+          (is (= "ok" (get (json/read-value body) "status"))))
         (finally (.stop jetty))))))

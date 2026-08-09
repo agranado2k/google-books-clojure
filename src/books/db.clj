@@ -1,11 +1,12 @@
 (ns books.db
-  "Database access: DATABASE_URL conversion.
+  "Database access: DATABASE_URL conversion and connectivity checks.
 
   Railway (and Heroku-style platforms) hand the app a libpq URL:
   postgresql://user:pass@host:port/db. The PostgreSQL JDBC driver wants
   jdbc:postgresql://host:port/db?user=...&password=..., so the credentials
   move from the authority into query parameters."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [next.jdbc :as jdbc])
   (:import (java.net URI URLDecoder URLEncoder)))
 
 (defn- percent-decode
@@ -40,3 +41,20 @@
            (when (pos? (.getPort uri)) (str ":" (.getPort uri)))
            (.getRawPath uri)
            (when (seq params) (str "?" (str/join "&" params)))))))
+
+(defn datasource
+  "A datasource for the given DATABASE_URL, or nil when the URL is absent
+  (the service runs database-less until one is provisioned)."
+  [database-url]
+  (when database-url
+    (jdbc/get-datasource {:jdbcUrl (database-url->jdbc-url database-url)})))
+
+(defn check
+  "Connectivity state of the given datasource:
+  :not-configured (nil datasource), :ok (ping succeeded), :unreachable."
+  [ds]
+  (cond
+    (nil? ds) :not-configured
+    (try (jdbc/execute-one! ds ["SELECT 1"]) true
+         (catch Exception _ false)) :ok
+    :else :unreachable))
