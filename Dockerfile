@@ -5,6 +5,7 @@ WORKDIR /app
 COPY deps.edn build.clj ./
 RUN clojure -P && clojure -P -T:build
 COPY src ./src
+COPY resources ./resources
 RUN clojure -T:build uber
 
 FROM eclipse-temurin:21-jre@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55
