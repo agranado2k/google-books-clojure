@@ -20,12 +20,12 @@ is in flight. Do not restate the README.
 
 | Field | Value |
 | --- | --- |
-| **Phase** | Skeleton live on Railway (ticket #3, pending repo-connect click). Frontier: #4 (Tailwind layout), #8 (Postgres wiring, local half), #12 (CI). |
+| **Phase** | Tickets #4, #8, #12 implemented in parallel; PRs #13 (CI), #14 (Postgres), #15 (Tailwind) open, awaiting review + merge. |
 | **Repo** | `~/PetProjects/google-books-clojure` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
 | **Deployed / live** | https://google-books-clojure-production.up.railway.app (Railway project `google-books-clojure`, service built from the repo Dockerfile). |
-| **Active worktrees** | None. |
+| **Active worktrees** | `worktree/ci-pipeline` (#13), `worktree/postgres-wiring` (#14), `worktree/tailwind-layout` (#15). |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
 
 ### Open questions / unresolved decisions
