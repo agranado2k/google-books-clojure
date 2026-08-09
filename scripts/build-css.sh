@@ -38,7 +38,13 @@ else
 	# Tailwind v4's standalone CLI has no version-only flag: `--version` falls
 	# through to a build and prints a whole stylesheet to stdout. `--help`
 	# prints the same version banner, costs nothing, and exits 0.
-	found=$(tailwindcss --help 2>&1 | sed -n 's/.*tailwindcss v\([0-9][0-9A-Za-z.+-]*\).*/\1/p' | head -1)
+	# The banner is colorized whenever the CLI decides to emit ANSI (it does so
+	# on CI runners even when stdout is a pipe), which puts escape sequences
+	# between "tailwindcss" and the version. Strip them before matching.
+	esc=$(printf '\033')
+	found=$(tailwindcss --help 2>&1 |
+		sed "s/${esc}\[[0-9;]*m//g" |
+		sed -n 's/.*tailwindcss v\([0-9][0-9A-Za-z.+-]*\).*/\1/p' | head -1)
 	if [ "$found" != "$EXPECTED_TAILWIND_VERSION" ]; then
 		echo "build-css.sh: Tailwind version mismatch — refusing to build." >&2
 		echo "  expected: $EXPECTED_TAILWIND_VERSION" >&2
