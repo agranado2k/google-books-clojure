@@ -1,5 +1,6 @@
-{:paths ["src"]
+{:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+        hiccup/hiccup {:mvn/version "2.0.0"}
         metosin/reitit-ring {:mvn/version "0.7.2"}
         ring/ring-jetty-adapter {:mvn/version "1.13.0"}
         org.slf4j/slf4j-simple {:mvn/version "2.0.16"}}
