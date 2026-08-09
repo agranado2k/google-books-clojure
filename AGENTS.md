@@ -125,6 +125,10 @@ does. It is not a routine task — read it when `VERSION` needs to change.
 
 ## Local rules
 
+- **Issue tracker: GitHub Issues** on `agranado2k/google-books-clojure` (decided
+  2026-08-08 when the first PRD was published). PRDs and tickets are published
+  there via `gh`; the autonomy label is `ready-for-agent`.
+
 ## The chain
 
 The skills in `.claude/skills/` are the lifecycle above, made runnable. Each one
