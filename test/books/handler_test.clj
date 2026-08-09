@@ -17,14 +17,17 @@
 
 ;; The page and static-surface tests need no database: an app built with
 ;; :db-optional? true boots database-less and still routes everything else.
-(defn- pages-app []
-  (handler/make-app nil {:db-optional? true}))
+;; ONE instance, shared by every `request` below — a per-call app would let a
+;; conditional-GET test echo a Last-Modified produced by a different instance,
+;; which would quietly stop testing revalidation the moment anything in the
+;; static chain gains per-app state (an ETag cache, a pool).
+(def ^:private pages-app (delay (handler/make-app nil {:db-optional? true})))
 
 (defn- request
   ([method uri] (request method uri nil))
   ([method uri headers]
-   ((pages-app) (cond-> {:request-method method :uri uri}
-                  headers (assoc :headers headers)))))
+   (@pages-app (cond-> {:request-method method :uri uri}
+                 headers (assoc :headers headers)))))
 
 (defn- header [response name]
   (get-in response [:headers name]))
@@ -108,7 +111,11 @@
 
 (deftest unknown-route
   (testing "an unrouted path answers 404"
-    (is (= 404 (:status (request :get "/nope"))))))
+    ;; Built with the DEFAULT (non-db-optional) options — the wiring production
+    ;; actually runs — so routing stays pinned there and not only under the
+    ;; opt-out config the page tests use.
+    (let [app (handler/make-app nil {})]
+      (is (= 404 (:status (app {:request-method :get :uri "/nope"})))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The static surface: /css/ and nothing else.
@@ -148,4 +155,7 @@
     ;; /.gitkeep, and would serve any public/ asset a dependency jar carries.
     ;; test-resources/public/not-served.txt stands in for exactly that.
     (is (= 404 (:status (request :get "/not-served.txt"))))
-    (is (= 404 (:status (request :get "/.gitkeep"))))))
+    ;; And nothing outside public/ at all: migrations ship on the same
+    ;; classpath, so a re-rooted handler would publish the schema.
+    (is (= 404 (:status (request :get "/migrations/20260809120000-schema-baseline.up.sql"))))
+    (is (= 404 (:status (request :get "/css/../migrations/20260809120000-schema-baseline.up.sql"))))))
