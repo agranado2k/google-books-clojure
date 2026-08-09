@@ -1,5 +1,6 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.1"}
+        hiccup/hiccup {:mvn/version "2.0.0"}
         metosin/reitit-ring {:mvn/version "0.7.2"}
         ring/ring-jetty-adapter {:mvn/version "1.13.0"}
         org.slf4j/slf4j-simple {:mvn/version "2.0.16"}
@@ -9,7 +10,9 @@
         metosin/jsonista {:mvn/version "0.3.13"}
         migratus/migratus {:mvn/version "1.5.6"}}
  :aliases
- {:test {:extra-paths ["test"]
+ ;; "test-resources" carries classpath fixtures (a stylesheet the static-serving
+ ;; tests can ask for without the generated resources/public/css/app.css).
+ {:test {:extra-paths ["test" "test-resources"]
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :exec-fn cognitect.test-runner.api/test}

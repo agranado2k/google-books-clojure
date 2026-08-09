@@ -21,6 +21,20 @@ git config core.hooksPath .githooks
 sh scripts/check.sh
 ```
 
+## Developing
+
+```sh
+# Build the stylesheet (standalone Tailwind CLI, no Node: `brew install tailwindcss`).
+# Pass --watch while working on pages. Run it before the server, or the page
+# renders unstyled; `clojure -T:build uber` refuses to package without it.
+scripts/build-css.sh
+```
+
+The committed Tailwind input is `styles/app.css`; the generated
+`resources/public/css/app.css` is gitignored and served by the app at
+`/css/app.css`. The Dockerfile build stage runs the same CSS build with a
+version-pinned, checksum-verified Tailwind binary.
+
 ## Running it
 
 ```sh

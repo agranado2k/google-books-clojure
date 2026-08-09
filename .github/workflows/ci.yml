@@ -99,6 +99,25 @@ jobs:
           TEST_DATABASE_URL: postgresql://postgres:test@localhost:5544/postgres
         run: clojure -X:test
 
+      # The uberjar refuses to build without the compiled stylesheet (build.clj),
+      # so CI needs the same Tailwind the image uses. Same release and the same
+      # x64 checksum as the Dockerfile's tailwind-amd64 stage — the runner is
+      # linux/amd64 — verified here because there is no BuildKit ADD to do it.
+      # Bump this together with the Dockerfile ARG and build-css.sh.
+      - name: Install Tailwind standalone CLI
+        env:
+          TAILWIND_VERSION: 4.3.3
+          TAILWIND_SHA256: dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a
+        run: |
+          curl -fsSL -o /tmp/tailwindcss \
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/v${TAILWIND_VERSION}/tailwindcss-linux-x64"
+          echo "${TAILWIND_SHA256}  /tmp/tailwindcss" | sha256sum -c -
+          chmod +x /tmp/tailwindcss
+          sudo mv /tmp/tailwindcss /usr/local/bin/tailwindcss
+
+      - name: Build stylesheet
+        run: sh scripts/build-css.sh
+
       # First execution of the production build path in CI: a broken uberjar
       # build must fail here, not at the first Railway deploy.
       - name: Build uberjar

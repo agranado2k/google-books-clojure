@@ -5,6 +5,9 @@ worktree/
 target/
 .cpcache/
 
+# Generated Tailwind stylesheet — built by scripts/build-css.sh from styles/app.css
+resources/public/css/
+
 # Editor/REPL litter
 .nrepl-port
 .lsp/

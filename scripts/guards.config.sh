@@ -98,6 +98,7 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 # -----------------------------------------------------------------------------
 BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/|^\.github/
 Architecture decisions|^docs/adr/
+HTTP surface (routes & rendered pages)|^src/books/handler\.clj$|^src/books/views\.clj$
 Persistence (schema + migrations)|^resources/migrations/'
 
 # Executable specification files. behavior-delta flags these when EDITED inside a

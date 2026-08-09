@@ -167,6 +167,7 @@ project has a glossary and decision records worth challenging a plan against,
 | Land a batch of green PRs           | `/merge-train` — **you** start it; no agent ever does |
 | Prune merged worktrees              | `/worktree-cleanup` — wraps `scripts/worktree-cleanup.sh` |
 | Know where a skill came from        | `.claude/skills/LICENSE-mattpocock-skills.md`    |
+| Build the stylesheet the app serves | `scripts/build-css.sh` — standalone Tailwind, no Node; the output is generated and gitignored, so run it on a fresh clone before `clojure -T:build uber` |
 | Run the docs gate                   | `scripts/check.sh` — also runs on every push     |
 | See what the gate actually checks   | `scripts/docs-conformance/` — one validator per rule |
 | Change what the gate enforces       | `scripts/docs-conformance/config.mjs` — all policy is data there |
