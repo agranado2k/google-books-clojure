@@ -1,0 +1,12 @@
+/* Tailwind input stylesheet — the COMMITTED half of the CSS build.
+ *
+ * The standalone Tailwind CLI (no Node toolchain) compiles this into
+ * resources/public/css/app.css, which is generated, gitignored, and served
+ * by the app at /css/app.css. Build it with scripts/build-css.sh.
+ *
+ * `source(none)` turns off Tailwind's automatic content detection so the
+ * scanned surface is explicit: the Clojure sources, where every class name
+ * lives in Hiccup vectors.
+ */
+@import "tailwindcss" source(none);
+@source "../src";
