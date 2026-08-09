@@ -1,0 +1,3 @@
+This file stands in for any public/ asset that is NOT a stylesheet -- a
+dependency jar shipping its own resources/public, or a stray keeper file.
+The web must not be able to reach it: the static surface is /css/ only.

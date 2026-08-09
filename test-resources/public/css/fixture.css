@@ -1,0 +1,8 @@
+/* Fixture stylesheet for the static-serving tests.
+ *
+ * The served stylesheet (resources/public/css/app.css) is GENERATED and
+ * gitignored, so tests must not depend on it having been built. This file is
+ * committed, sits on the :test alias classpath via "test-resources", and is
+ * the only stylesheet the handler tests ask for.
+ */
+.fixture { color: rebeccapurple; }
