@@ -38,7 +38,32 @@ Chosen: **multi-stage Dockerfile → tools.build uberjar → slim JRE runtime**.
 - **Bad / trade-off**: digest refreshes are a manual chore someone must own; AOT compilation slows the image build.
 - **Honest limitation**: digest pinning protects against upstream re-tags, not against a compromised image published *at* the pinned digest.
 
+## Amendment — 2026-08-09: pinning covers fetched build tools too
+
+*An in-place amendment (INDEX.md conventions): it extends clause 2's pinning
+discipline to a case that did not exist when the clause was written. It does not
+reverse anything above, and nothing above is rewritten.*
+
+Clause 2 pinned the two *base images* by digest, because at the time those were
+the only things the build pulled from the network. ADR-0004's CSS pipeline added
+a second kind of fetch: a build tool downloaded by URL inside the build stage
+(the standalone Tailwind CLI). An unverified download in an otherwise
+digest-pinned build is the weakest link, and it would not have been covered by
+the clause as written.
+
+The discipline therefore reads: **everything the image build fetches over the
+network is pinned and verified — base images by digest, and fetched build tools
+by `ADD --checksum=sha256:…`, one checksum per architecture, recomputed together
+with the version they belong to.** Because `ADD --checksum` requires BuildKit
+frontend ≥ 1.6, the Dockerfile also pins the frontend with
+`# syntax=docker/dockerfile:1`; leaving the frontend to the build host's default
+would make the verification itself conditional on where the build runs.
+
+The honest limitation below extends unchanged: a checksum proves the artifact is
+the one that was published, not that what was published is trustworthy.
+
 ## More information
 
 - Implemented in: PR [#11](https://github.com/agranado2k/google-books-clojure/pull/11) (ticket [#2](https://github.com/agranado2k/google-books-clojure/issues/2)); hardened per its review
-- Related: ADR-0001; Railway Railpack docs (Clojure undetected, verified 2026-08-08)
+- Amended by the `feat/tailwind-layout` change that introduced the CSS build (see ADR-0004)
+- Related: ADR-0001; ADR-0004; Railway Railpack docs (Clojure undetected, verified 2026-08-08)
