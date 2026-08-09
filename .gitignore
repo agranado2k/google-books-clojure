@@ -1,0 +1,11 @@
+# In-progress feature worktrees (AGENTS.md hard rule 1) — never tracked
+worktree/
+
+# Clojure build output
+target/
+.cpcache/
+
+# Editor/REPL litter
+.nrepl-port
+.lsp/
+.clj-kondo/.cache/
