@@ -1,0 +1,122 @@
+name: CI
+
+# The forge half of this repo's gates, in ONE workflow (ticket #12, PRD #1):
+#
+#   test        clojure -X:test — the suite is the specification
+#   docs-gate   scripts/check.sh — same rule .githooks/pre-push runs locally;
+#               this job is what makes PUSH_WITHOUT_DOCS=1 a deferral, not an
+#               override
+#   tdd-pairing scripts/tdd-pairing-guard-ci.sh — the CI twin of the pre-push
+#               pairing guard. Escape hatch: the `tdd-exempt` PR label, read
+#               from the event payload (no token, no API call), so the bypass
+#               is a reviewable fact on the PR rather than an env var in
+#               someone's shell history. The `labeled`/`unlabeled` triggers
+#               exist for that hatch; they re-run the other jobs too — the
+#               accepted cost of one workflow while the suite is seconds long.
+#
+# pull_request runs the PR's OWN copy of this file and of the guard scripts, so
+# a PR that edits them is checked by its edits. This gates honest mistakes, not
+# an adversary — the jobs hold a read-only token and make no external call;
+# human review covers a diff that weakens a gate.
+#
+# Deployment is deliberately ABSENT: Railway's native GitHub integration owns
+# deploys (ADR-0002). Third-party actions are pinned by full commit SHA
+# (house style, see ADR-0002 / Dockerfile).
+
+on:
+  pull_request:
+    # Defaults plus: ready_for_review (draft flips), labeled/unlabeled (the
+    # tdd-exempt hatch must re-evaluate when the label moves).
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup JDK 21 (temurin)
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Clojure CLI
+        uses: DeLaGuardo/setup-clojure@4c7a6f613e5089821bb3bb2a33a3ee115578580d # 13.6.1
+        with:
+          cli: 1.12.5.1664
+
+      # ~/.gitlibs is cached too: the :test alias pulls cognitect-labs/test-runner
+      # as a git dep, which resolves into gitlibs rather than ~/.m2.
+      - name: Cache deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            .cpcache
+          key: clojure-deps-${{ runner.os }}-${{ hashFiles('deps.edn') }}
+          restore-keys: |
+            clojure-deps-${{ runner.os }}-
+
+      - name: Run tests
+        run: clojure -X:test
+
+  docs-gate:
+    name: Docs gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # check.sh runs its full node harness (scripts/docs-conformance) when node
+      # is on PATH, and only a reduced POSIX fallback without it — pin node so
+      # the gate never silently downgrades its coverage.
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Run the docs gate
+        run: sh scripts/check.sh
+
+  tdd-pairing:
+    name: TDD pairing
+    # The guard compares the PR's trees against its merge base; a push to main
+    # has no base/head pair, so this job is pull_request-only.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 — the guard resolves `git merge-base BASE_SHA HEAD_SHA`,
+      # which a shallow clone cannot answer (it exits 2 rather than guessing).
+      - name: Checkout (full history for the merge base)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Only for the label lookup inside the guard; nothing is installed.
+      # Absent node the lookup fails CLOSED (not exempt), so this step can
+      # never turn a red gate green.
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # GITHUB_EVENT_PATH is set by the runner — the guard reads the
+      # `tdd-exempt` label straight from that payload.
+      - name: Source changes carry test changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: sh scripts/tdd-pairing-guard-ci.sh
