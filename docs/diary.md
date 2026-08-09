@@ -20,11 +20,11 @@ is in flight. Do not restate the README.
 
 | Field | Value |
 | --- | --- |
-| **Phase** | Walking skeleton merged (PR #11, ticket #2). Frontier: #3 (Railway deploy, HITL), #4 (Tailwind layout), #8 (Postgres wiring, local half). |
+| **Phase** | Skeleton live on Railway (ticket #3, pending repo-connect click). Frontier: #4 (Tailwind layout), #8 (Postgres wiring, local half), #12 (CI). |
 | **Repo** | `~/PetProjects/google-books-clojure` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | PR #11 merge — walking skeleton (/health, Docker, ADRs 0001–0002) |
-| **Deployed / live** | Nothing yet. |
+| **Deployed / live** | https://google-books-clojure-production.up.railway.app (Railway project `google-books-clojure`, service built from the repo Dockerfile). |
 | **Active worktrees** | None. |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 (DAG + labels in the checklist comment on #1). Frontier: #2. |
 
@@ -153,3 +153,18 @@ Infrastructure note: the dev machine had no Clojure toolchain — `openjdk@21`
 and `clojure` were installed via Homebrew (Temurin cask needs sudo; the
 formula does not). `JAVA_HOME=$(brew --prefix openjdk@21)` is required
 until wired into the shell profile.
+
+### 2026-08-09 — Skeleton live on Railway; CI decided as GitHub Actions + native deploys
+
+Ticket #3 executed with the owner in the loop: Railway account upgraded from
+expired trial to a paid plan, project `google-books-clojure` created, and the
+walking skeleton deployed via `railway up` — live at
+https://google-books-clojure-production.up.railway.app/health (200 on GET and
+HEAD). Environment: Railway production, new service, Dockerfile build, injected
+`PORT` honored. One click remains on #3: connecting the GitHub repo in the
+dashboard so pushes to `main` auto-deploy.
+
+CI/CD decision (owner, 2026-08-09): deploys stay on Railway's native GitHub
+integration; GitHub Actions does CI only — tests, docs gate, and the pairing
+guard's CI twin on every PR. Recorded as ticket #12 (`ready-for-agent`); not in
+the original DAG, added at the owner's request.
