@@ -45,4 +45,6 @@ was never decided". If one grows consequential enough, promote it to an ADR and
 leave a back-reference in the diary entry.
 -->
 
-- _None yet._
+- **2026-08-09** — Deploys via Railway's native GitHub integration; GitHub
+  Actions is CI-only (tests, docs gate, TDD pairing guard). See the diary
+  entry of that date.
