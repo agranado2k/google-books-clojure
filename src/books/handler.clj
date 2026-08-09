@@ -9,5 +9,5 @@
 (def app
   (ring/ring-handler
    (ring/router
-    [["/health" {:get health}]])
+    [["/health" {:get health :head health}]])
    (ring/create-default-handler)))
