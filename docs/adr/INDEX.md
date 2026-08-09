@@ -16,7 +16,8 @@ alone answers "what is currently binding?" without opening 40 files.
 
 | # | Title | Status |
 |---|---|---|
-| — | _No decisions recorded yet._ | — |
+| [0001](0001-compose-web-stack-from-ring-reitit-jetty.md) | Compose the web service from Ring + Reitit + Jetty libraries | Accepted 2026-08-08 |
+| [0002](0002-package-as-uberjar-in-docker-for-railway.md) | Package as an uberjar in a multi-stage Dockerfile for Railway | Accepted 2026-08-08 |
 
 ## Conventions
 

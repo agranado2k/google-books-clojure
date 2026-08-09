@@ -51,11 +51,7 @@
 # here is silently un-guarded.
 #
 # Examples (delete the ones that do not apply, uncomment the ones that do):
-#   GUARD_SOURCE_RE='^(src|lib)/.*\.(ts|tsx|js|mjs)$'
-#   GUARD_SOURCE_RE='^(packages/[^/]+/src/|apps/[^/]+/src/).*\.(ts|tsx|mjs)$'
-#   GUARD_SOURCE_RE='^(app|domain)/.*\.py$'
-#   GUARD_SOURCE_RE='^internal/.*\.go$'
-GUARD_SOURCE_RE=''
+GUARD_SOURCE_RE='^src/.*\.clj[cs]?$'
 
 # Paths that match SOURCE but must NOT count as source. The default carries the
 # two exclusions every project needs: the test files themselves (they match many
