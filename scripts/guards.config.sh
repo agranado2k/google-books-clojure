@@ -96,7 +96,7 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 #   Error semantics (the shared error model)|^lib/errors/
 #   Agent-facing prompt surfaces|^prompts/|^skills/
 # -----------------------------------------------------------------------------
-BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/
+BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/|^\.github/
 Architecture decisions|^docs/adr/'
 
 # Executable specification files. behavior-delta flags these when EDITED inside a
