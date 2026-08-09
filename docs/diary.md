@@ -20,12 +20,12 @@ is in flight. Do not restate the README.
 
 | Field | Value |
 | --- | --- |
-| **Phase** | Tickets #4, #8, #12 implemented in parallel; PRs #13 (CI), #14 (Postgres), #15 (Tailwind) open, awaiting review + merge. |
+| **Phase** | Tickets #2, #4, #8, #12 merged. Frontier: #5 (search — needs the Google Books API key), #7 (Clerk auth — needs a Clerk app). |
 | **Repo** | `~/PetProjects/google-books-clojure` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
-| **Deployed / live** | https://google-books-clojure-production.up.railway.app (Railway project `google-books-clojure`, service built from the repo Dockerfile). |
-| **Active worktrees** | `worktree/ci-pipeline` (#13), `worktree/postgres-wiring` (#14), `worktree/tailwind-layout` (#15). |
+| **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
+| **Active worktrees** | None. |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
 
 ### Open questions / unresolved decisions
@@ -168,3 +168,30 @@ CI/CD decision (owner, 2026-08-09): deploys stay on Railway's native GitHub
 integration; GitHub Actions does CI only — tests, docs gate, and the pairing
 guard's CI twin on every PR. Recorded as ticket #12 (`ready-for-agent`); not in
 the original DAG, added at the owner's request.
+
+### 2026-08-09 — Three tickets merged; production is now behind main
+
+PRs #13 (CI), #14 (persistence) and #15 (UI) all landed, closing tickets #12,
+#8 and #4. `main` now carries: a GitHub Actions pipeline that runs the suite
+against a live Postgres service container, compiles the stylesheet and builds
+the uberjar; `books.db` with credentials confined to db-spec maps (never a URL
+string), migrate-on-boot, and a JSON `/health` with three states gated by
+`DB_OPTIONAL`; and a Hiccup landing page whose Tailwind CSS is built by the
+checksum-pinned standalone CLI and served from a `/css/`-scoped static surface.
+ADR-0003 (persistence) and ADR-0004 (server-rendered UI) record the decisions;
+ADR-0002 gained a dated amendment extending pinning to fetched build tools.
+
+Two things worth carrying forward. The `/review-pr` pass on #14 found — and
+proved live — that Migratus logged the database password whenever the JDBC URL
+carried credentials; the fix (spec maps, so the library's redactor engages) is
+now a binding rule in ADR-0003 rather than a one-off patch. And merging #15
+after #14 was a genuine code merge, not a formality: both branches had
+restructured the handler, so `make-app` was recombined by hand and the merged
+image re-verified against a real Postgres before the branch was pushed.
+
+**Production is stale.** The Railway service still runs the walking-skeleton
+image from 2026-08-09 (`/health` answers plain `ok`; `/` 404s). Ticket #3's
+last step — connecting the GitHub repo in the Railway dashboard so pushes to
+`main` deploy — was never done, and no deploy has run since. The database and
+its `DATABASE_URL` reference variable are provisioned and Online, so the merged
+code should come up healthy once a deploy happens.
