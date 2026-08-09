@@ -8,8 +8,14 @@
   [env-port]
   (if env-port (Long/parseLong env-port) 3000))
 
-(defn -main [& _args]
+(defn start
+  "Start the HTTP server on the given port, bound to all interfaces.
+  Returns the running server."
+  [http-port]
   (jetty/run-jetty handler/app
                    {:host "0.0.0.0"
-                    :port (port (System/getenv "PORT"))
-                    :join? true}))
+                    :port http-port
+                    :join? false}))
+
+(defn -main [& _args]
+  (.join (start (port (System/getenv "PORT")))))
