@@ -1,5 +1,6 @@
 (ns books.server
-  (:require [books.handler :as handler]
+  (:require [books.db :as db]
+            [books.handler :as handler]
             [ring.adapter.jetty :as jetty])
   (:gen-class))
 
@@ -11,11 +12,22 @@
 (defn start
   "Start the HTTP server on the given port, bound to all interfaces.
   Returns the running server."
-  [http-port]
-  (jetty/run-jetty handler/app
-                   {:host "0.0.0.0"
-                    :port http-port
-                    :join? false}))
+  ([http-port] (start http-port handler/app))
+  ([http-port app]
+   (jetty/run-jetty app
+                    {:host "0.0.0.0"
+                     :port http-port
+                     :join? false})))
+
+(defn run
+  "The full boot path: migrate when a database is configured, then start
+  the server with that database wired into the handler. A nil
+  database-url boots database-less. Returns the running server."
+  [{:keys [http-port database-url]}]
+  (when database-url
+    (db/migrate! database-url))
+  (start http-port (handler/make-app (db/datasource database-url))))
 
 (defn -main [& _args]
-  (.join (start (port (System/getenv "PORT")))))
+  (.join (run {:http-port (port (System/getenv "PORT"))
+               :database-url (System/getenv "DATABASE_URL")})))

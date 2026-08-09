@@ -6,6 +6,7 @@
   jdbc:postgresql://host:port/db?user=...&password=..., so the credentials
   move from the authority into query parameters."
   (:require [clojure.string :as str]
+            [migratus.core :as migratus]
             [next.jdbc :as jdbc])
   (:import (java.net URI URLDecoder URLEncoder)))
 
@@ -48,6 +49,14 @@
   [database-url]
   (when database-url
     (jdbc/get-datasource {:jdbcUrl (database-url->jdbc-url database-url)})))
+
+(defn migrate!
+  "Run all pending Migratus migrations (resources/migrations on the
+  classpath) against the database named by the given DATABASE_URL."
+  [database-url]
+  (migratus/migrate {:store :database
+                     :migration-dir "migrations"
+                     :db {:jdbcUrl (database-url->jdbc-url database-url)}}))
 
 (defn check
   "Connectivity state of the given datasource:

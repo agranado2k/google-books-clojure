@@ -1,11 +1,19 @@
 (ns books.db-test
-  "Unit tests for the DATABASE_URL -> JDBC URL conversion.
+  "Unit tests for the DATABASE_URL -> JDBC URL conversion, plus the
+  migration path against a real local Postgres. Start one with:
 
-  The conversion is pure: Railway hands the app a libpq-style URL
-  (postgresql://user:pass@host:port/db) and the JDBC driver wants
-  jdbc:postgresql://host:port/db?user=...&password=...."
+    docker run -d --rm --name books-test-pg -p 5544:5432 \\
+      -e POSTGRES_PASSWORD=test postgres:16
+
+  and stop it afterwards with `docker stop books-test-pg`. Point
+  TEST_DATABASE_URL elsewhere to use a different instance."
   (:require [books.db :as db]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]]
+            [next.jdbc :as jdbc]))
+
+(def test-database-url
+  (or (System/getenv "TEST_DATABASE_URL")
+      "postgresql://postgres:test@localhost:5544/postgres"))
 
 (deftest converts-a-full-railway-url
   (testing "user:pass@host:port/db moves the credentials into query params"
@@ -41,3 +49,12 @@
   (testing "anything but postgres/postgresql is a configuration error"
     (is (thrown? clojure.lang.ExceptionInfo
                  (db/database-url->jdbc-url "mysql://u:p@h:3306/d")))))
+
+(deftest migrate-applies-the-baseline-migration
+  (testing "migrate! runs the Migratus migrations, creating schema_baseline"
+    (db/migrate! test-database-url)
+    (let [ds (db/datasource test-database-url)]
+      (is (= 1 (:n (jdbc/execute-one!
+                    ds
+                    ["select count(*) as n from information_schema.tables
+                      where table_schema = 'public' and table_name = 'schema_baseline'"])))))))
