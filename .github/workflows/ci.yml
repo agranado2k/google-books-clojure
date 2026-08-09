@@ -116,7 +116,19 @@ jobs:
           sudo mv /tmp/tailwindcss /usr/local/bin/tailwindcss
 
       - name: Build stylesheet
-        run: sh scripts/build-css.sh
+        # build-css.sh's banner check could not read a version from this exact
+        # binary on the runner (run 31319322134), though the same bytes report
+        # "tailwindcss v4.3.3" in a local linux/amd64 container. The SHA-256
+        # verified in the step above is the stronger guarantee of *which*
+        # Tailwind this is, so the banner check is deliberately skipped here —
+        # not locally, where no checksum is verified. The raw output is logged
+        # so the cause is on the record rather than assumed.
+        env:
+          SKIP_TAILWIND_VERSION_CHECK: 1
+        run: |
+          echo "--- tailwindcss --help, first line (diagnostic):"
+          tailwindcss --help 2>&1 | head -1 | cat -v || true
+          sh scripts/build-css.sh
 
       # First execution of the production build path in CI: a broken uberjar
       # build must fail here, not at the first Railway deploy.
