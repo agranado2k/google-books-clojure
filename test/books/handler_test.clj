@@ -96,10 +96,12 @@
 (deftest landing-page-explains-the-product
   ;; Every string below appears ONLY in the landing body — never in the shared
   ;; header or footer — so each assertion can fail for the reason it states.
-  (testing "the landing copy promises search, bookmarks, and a later sign-in"
+  (testing "the landing copy offers search, and promises bookmarks and a later sign-in"
     (let [body (:body (request :get "/"))]
       (is (str/includes? body "Search the Google Books catalog. Keep the books that matter."))
-      (is (str/includes? body "Find any book in the Google Books catalog by title, author, or keyword."))
+      ;; Search shipped, so the roadmap card says so rather than "coming next".
+      (is (str/includes? body "Find a book in the Google Books catalog by title, by author, or by both."))
+      (is (str/includes? body "Available now"))
       (is (str/includes? body "Save the books you care about and find them again in one place."))
       (is (str/includes? body "an account so they follow you around")))))
 

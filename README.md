@@ -45,7 +45,8 @@ every run. Nothing needs to be built or fetched for it —
 ## Running it
 
 ```sh
-# Run the service locally, database-less.
+# Run the service locally, database-less. Add GOOGLE_BOOKS_API_KEY to make the
+# search page actually search; without it the page renders its error state.
 DB_OPTIONAL=true clojure -M -m books.server
 
 # Run it against a local Postgres (the same one the tests use).
@@ -59,6 +60,12 @@ clojure -X:test
 clojure -T:build uber
 ```
 
+`GET /search` is the reader-facing search page: a title/author form that swaps
+its results in via htmx, with the same URL answering the whole page for a plain
+form GET (so it works without JavaScript, and a result URL can be shared). It
+needs `GOOGLE_BOOKS_API_KEY`; without one it renders honestly and says search is
+not configured.
+
 `GET /health` answers JSON: `200 {"status":"ok","db":"ok"}` when the database
 is reachable, `503 {"status":"degraded","db":"unreachable"}` when it is not,
 and `db: "not-configured"` when no `DATABASE_URL` is set — 503 by default, 200
@@ -70,6 +77,7 @@ under `DB_OPTIONAL=true`.
 | --- | --- | --- | --- |
 | `DATABASE_URL` | yes, unless `DB_OPTIONAL=true` | — | The database, in libpq form: `postgresql://user:password@host:port/dbname` (`postgres://` is accepted too). Query parameters — `sslmode` included — are passed to the driver unchanged. Railway injects this. Migrations run at boot against it, and a failed migration or an unreachable database **crashes the boot** deliberately (ADR-0003). |
 | `DB_OPTIONAL` | no | `false` | `true` makes running without a `DATABASE_URL` a healthy state. Anything else, including unset, makes a missing `DATABASE_URL` a 503 — so a deploy that silently loses the variable fails its health check. |
+| `GOOGLE_BOOKS_API_KEY` | no, but search does nothing without it | — | The Google Books API key the search page uses. **A secret**: it travels in the query string of every catalog request, so it is never logged, never rendered, and redacted out of any diagnostic built from that URL. Absent or blank is not a boot failure — every search then answers "search is not configured here" and the page says so. |
 | `PORT` | no | `3000` | The HTTP port; the server binds `0.0.0.0`. Railway injects this. |
 | `TEST_DATABASE_URL` | no | `postgresql://postgres:test@localhost:5544/postgres` | Tests only — where the suite finds its Postgres. |
 

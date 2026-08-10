@@ -1,9 +1,11 @@
 (ns books.handler
-  (:require [books.db :as db]
+  (:require [books.catalog :as catalog]
+            [books.db :as db]
             [books.views :as views]
             [jsonista.core :as json]
             [reitit.ring :as ring]
-            [ring.middleware.not-modified :refer [wrap-not-modified]]))
+            [ring.middleware.not-modified :refer [wrap-not-modified]]
+            [ring.middleware.params :refer [wrap-params]]))
 
 (def ^:private health-states
   {:ok          {:http-status 200 :body {:status "ok" :db "ok"}}
@@ -27,10 +29,40 @@
        :headers {"Content-Type" "application/json"}
        :body (json/write-value-as-string body)})))
 
-(defn- landing [_request]
+(defn- html
+  "An HTML response. The only place a content type is spelled for a page."
+  [body]
   {:status 200
    :headers {"Content-Type" "text/html; charset=utf-8"}
-   :body (views/landing-page)})
+   :body body})
+
+(defn- landing [_request]
+  (html (views/landing-page)))
+
+(defn- htmx-request?
+  "Whether htmx is asking, rather than a browser navigating. htmx sends this
+  header on every request it makes; a plain form GET does not."
+  [request]
+  (= "true" (get-in request [:headers "hx-request"])))
+
+(defn- search
+  "GET /search, answering the same content two ways: the results fragment when
+  htmx asks for it, the whole page otherwise — so the form still works without
+  JavaScript and a shared URL still shows its results.
+
+  Always 200, including for a failed search. htmx does not swap a non-2xx
+  response, and the rendered error region IS the answer: the page rendered
+  fine; the search did not."
+  [books]
+  (fn [request]
+    (let [query (catalog/query {:title (get-in request [:params "title"])
+                                :author (get-in request [:params "author"])})
+          state (if (catalog/blank-query? query)
+                  {:outcome :prompt}
+                  (catalog/search-volumes books query))]
+      (html (if (htmx-request? request)
+              (views/search-results state)
+              (views/search-page query state))))))
 
 (def ^:private stylesheet-cache-control
   ;; The stylesheet URL is unversioned (/css/app.css), so a cached copy can
@@ -92,22 +124,31 @@
                 :cache-control script-cache-control}))
 
 (defn make-app
-  "The Ring handler with its database dependency injected. `datasource` is nil
-  when no DATABASE_URL is configured.
+  "The Ring handler with its dependencies injected: the database, and the Books
+  port the search page is served by. `datasource` is nil when no DATABASE_URL
+  is configured.
 
   Options:
   * `:db-optional?` — treat an absent DATABASE_URL as healthy (default false);
-  * `:probe` — the connectivity probe, for tests.
+  * `:probe` — the connectivity probe, for tests;
+  * `:catalog` — a `books.catalog/BookSearch`. Defaults to the not-configured
+    one, so an app wired without a catalog renders the search page's error
+    state instead of failing to boot.
 
   The connectivity result is cached for `db/check-ttl-ms`: /health is
   unauthenticated, so it must not open a database connection per request."
-  [datasource {:keys [db-optional? probe] :or {db-optional? false}}]
+  [datasource {:keys [db-optional? probe catalog] :or {db-optional? false}}]
   (let [check (db/checker datasource (cond-> {} probe (assoc :probe probe)))
-        health-handler (health check db-optional?)]
+        health-handler (health check db-optional?)
+        search-handler (search (or catalog catalog/not-configured))]
     (ring/ring-handler
      (ring/router
       [["/" {:get landing :head landing}]
-       ["/health" {:get health-handler :head health-handler}]])
+       ["/health" {:get health-handler :head health-handler}]
+       ["/search" {:get search-handler}]]
+      ;; Query parameters, for the search form. Router-scoped rather than
+      ;; wrapped around everything: the static roots take no parameters.
+      {:data {:middleware [wrap-params]}})
      (ring/routes
       stylesheets
       scripts
