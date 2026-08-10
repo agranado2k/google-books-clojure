@@ -6,7 +6,8 @@
   (:require [books.catalog :as catalog]
             [books.google-books :as google]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]]
+            [ring.adapter.jetty :as jetty]))
 
 (def ^:private api-key "test-key-not-a-real-one")
 
@@ -149,6 +150,28 @@
   (testing "a blank key counts as absent"
     (is (= {:outcome :error :reason :not-configured}
            (catalog/search-volumes (google/book-search {:api-key "   "}) {:title "Clojure"})))))
+
+;; ---------------------------------------------------------------------------
+;; The default fetch — the one piece the canned bodies cannot exercise.
+;; Against a local server, never against Google.
+;; ---------------------------------------------------------------------------
+
+(deftest the-default-fetch-really-speaks-http
+  (let [jetty (jetty/run-jetty
+               (fn [request]
+                 {:status (if (= "/refused" (:uri request)) 429 200)
+                  :headers {"Content-Type" "application/json"}
+                  :body "{\"items\":[{\"id\":\"a\",\"volumeInfo\":{\"title\":\"Over the wire\"}}]}"})
+               {:host "127.0.0.1" :port 0 :join? false})
+        base (str "http://127.0.0.1:" (.getLocalPort (aget (.getConnectors jetty) 0)))]
+    (try
+      (testing "status and body come back as the adapter expects them"
+        (let [{:keys [status body]} (google/http-fetch (str base "/books/v1/volumes?q=x"))]
+          (is (= 200 status))
+          (is (= [{:id "a" :title "Over the wire"}] (:volumes (google/parse-body body))))))
+      (testing "a refusal is reported by status, not by throwing"
+        (is (= 429 (:status (google/http-fetch (str base "/refused"))))))
+      (finally (.stop jetty)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The key is a secret, including on the way out

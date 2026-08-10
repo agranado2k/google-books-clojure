@@ -145,8 +145,10 @@
 ;; The adapter
 ;; ---------------------------------------------------------------------------
 
-(defn- http-fetch
-  "GET `url`, answering `{:status … :body …}`. Bounded by `timeouts`."
+(defn http-fetch
+  "GET `url`, answering `{:status … :body …}`. Bounded by `timeouts`. This is
+  the default `:fetch` — public so the one piece of this namespace that the
+  canned-body tests cannot reach is still reachable by a test of its own."
   [url]
   ;; Redirects are deliberately NOT followed (the builder's default): the URL
   ;; carries the API key, and a followed redirect would hand it to whatever
