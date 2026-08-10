@@ -91,6 +91,13 @@ jobs:
             ~/.gitlibs
           key: clojure-deps-${{ runner.os }}-${{ hashFiles('deps.edn') }}
 
+      # The suite already re-hashes the vendored htmx (books.assets-test). This
+      # adds the one check the suite cannot make: that the fetch script's own
+      # pins still agree with src/books/assets.clj, so a bump cannot update one
+      # side and leave the other.
+      - name: Verify the vendored htmx pin
+        run: sh scripts/vendor-htmx.sh --verify
+
       - name: Run tests
         env:
           # feat/postgres-wiring's integration tests need a live database; the

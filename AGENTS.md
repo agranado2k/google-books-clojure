@@ -168,6 +168,7 @@ project has a glossary and decision records worth challenging a plan against,
 | Prune merged worktrees              | `/worktree-cleanup` — wraps `scripts/worktree-cleanup.sh` |
 | Know where a skill came from        | `.claude/skills/LICENSE-mattpocock-skills.md`    |
 | Build the stylesheet the app serves | `scripts/build-css.sh` — standalone Tailwind, no Node; the output is generated and gitignored, so run it on a fresh clone before `clojure -T:build uber` |
+| Refresh or verify the vendored htmx | `scripts/vendor-htmx.sh` — committed release, version + SHA-256 pinned in `src/books/assets.clj`; the suite re-hashes the bytes every run |
 | Run the docs gate                   | `scripts/check.sh` — also runs on every push     |
 | See what the gate actually checks   | `scripts/docs-conformance/` — one validator per rule |
 | Change what the gate enforces       | `scripts/docs-conformance/config.mjs` — all policy is data there |

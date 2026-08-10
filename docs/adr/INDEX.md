@@ -19,7 +19,7 @@ alone answers "what is currently binding?" without opening 40 files.
 | [0001](0001-compose-web-stack-from-ring-reitit-jetty.md) | Compose the web service from Ring + Reitit + Jetty libraries | Accepted 2026-08-08 |
 | [0002](0002-package-as-uberjar-in-docker-for-railway.md) | Package as an uberjar in a multi-stage Dockerfile for Railway | Accepted 2026-08-08, amended 2026-08-09 (pinning covers fetched build tools) |
 | [0003](0003-persistence-next-jdbc-migratus-postgres.md) | Persist on Railway PostgreSQL via next.jdbc and Migratus, migrating at boot | Accepted 2026-08-09 |
-| [0004](0004-server-rendered-ui-hiccup-tailwind.md) | Render the UI on the server with Hiccup2 and build its CSS with the standalone Tailwind CLI | Accepted 2026-08-09 |
+| [0004](0004-server-rendered-ui-hiccup-tailwind.md) | Render the UI on the server with Hiccup2 and build its CSS with the standalone Tailwind CLI | Accepted 2026-08-09, amended 2026-08-10 (second scoped static root `/js/` for a vendored, digest-pinned htmx) |
 
 ## Conventions
 

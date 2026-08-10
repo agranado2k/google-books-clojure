@@ -2,7 +2,8 @@
   "Handler-seam tests: pass a Ring request map into the app, assert on the
   response map. The database these tests talk to — and the command that starts
   one — is in `books.test-db`."
-  (:require [books.db :as db]
+  (:require [books.assets :as assets]
+            [books.db :as db]
             [books.handler :as handler]
             [books.test-db :as test-db]
             [clojure.string :as str]
@@ -149,8 +150,8 @@
       (is (not= 200 (:status (request method "/css/fixture.css")))
           (str (str/upper-case (name method)) " on a stylesheet must not answer 200")))))
 
-(deftest static-surface-is-scoped-to-css
-  (testing "classpath resources outside public/css are not web-reachable"
+(deftest static-surface-is-scoped-to-css-and-js
+  (testing "classpath resources outside public/css and public/js are not web-reachable"
     ;; Regression: a handler rooted at "public" and mounted at "/" served
     ;; /.gitkeep, and would serve any public/ asset a dependency jar carries.
     ;; test-resources/public/not-served.txt stands in for exactly that.
@@ -158,4 +159,30 @@
     ;; And nothing outside public/ at all: migrations ship on the same
     ;; classpath, so a re-rooted handler would publish the schema.
     (is (= 404 (:status (request :get "/migrations/20260809120000-schema-baseline.up.sql"))))
-    (is (= 404 (:status (request :get "/css/../migrations/20260809120000-schema-baseline.up.sql"))))))
+    (is (= 404 (:status (request :get "/css/../migrations/20260809120000-schema-baseline.up.sql"))))
+    ;; The /js/ root added for htmx is a second scoped root, not a re-rooting.
+    (is (= 404 (:status (request :get "/js/../migrations/20260809120000-schema-baseline.up.sql"))))
+    (is (= 404 (:status (request :get "/js/../not-served.txt"))))))
+
+;; ---------------------------------------------------------------------------
+;; The second static root: the vendored htmx under /js/.
+;; Unlike the stylesheet this file is COMMITTED, so these run against the real
+;; asset the browser gets — `books.assets-test` is what proves its bytes.
+;; ---------------------------------------------------------------------------
+
+(deftest vendored-script-is-served
+  (testing "GET the vendored htmx answers 200 with a JavaScript content type"
+    (let [response (request :get assets/htmx-path)]
+      (is (= 200 (:status response)))
+      (is (re-find #"javascript" (str (header response "Content-Type")))))))
+
+(deftest vendored-script-is-cached-forever
+  (testing "the URL carries the version, so the bytes behind it can never change"
+    (is (= "public, max-age=31536000, immutable"
+           (header (request :get assets/htmx-path) "Cache-Control")))))
+
+(deftest vendored-script-rejects-write-methods
+  (testing "only GET and HEAD reach the script root"
+    (doseq [method [:post :put :delete :patch]]
+      (is (not= 200 (:status (request method assets/htmx-path)))
+          (str (str/upper-case (name method)) " on a script must not answer 200")))))

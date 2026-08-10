@@ -38,6 +38,13 @@
   ;; over bytes — until a cache-busting scheme exists (ADR-0004).
   "public, max-age=0, must-revalidate")
 
+(def ^:private script-cache-control
+  ;; The opposite case, and the reason ADR-0004 clause 6 was written as a
+  ;; coupling rather than a blanket rule: the vendored script's URL carries its
+  ;; version (/js/htmx-<version>.min.js), so the bytes behind it can never
+  ;; change. A new version is a new URL, so this one can be cached forever.
+  "public, max-age=31536000, immutable")
+
 (defn- wrap-request-methods
   "Only requests whose method is in `methods` reach `handler`; the rest get a
   nil response, so `ring/routes` falls through to the next handler."
@@ -59,14 +66,30 @@
       ([request] (stamp (handler request)))
       ([request respond raise] (handler request (comp respond stamp) raise)))))
 
-(def ^:private stylesheets
-  "The whole static surface: the Tailwind-built stylesheet under /css/.
-  Rooted at public/css rather than public so nothing else on the classpath —
-  a keeper file, a dependency jar's own public/ assets — is web-reachable."
-  (->> (ring/create-resource-handler {:path "/css/" :root "public/css"})
+(defn- static-root
+  "A read-only static surface: the classpath tree `root`, mounted at `path`,
+  with its own cache policy.
+
+  Each root is named explicitly and rooted BELOW public/ — never at public/
+  itself and never at `/` — so that adding one publishes exactly the tree it
+  names and nothing that happens to sit beside it on the classpath (a keeper
+  file, the migrations, a dependency jar's own public/ assets)."
+  [{:keys [path root cache-control]}]
+  (->> (ring/create-resource-handler {:path path :root root})
        (wrap-not-modified)
-       (wrap-cache-control stylesheet-cache-control)
+       (wrap-cache-control cache-control)
        (wrap-request-methods #{:get :head})))
+
+(def ^:private stylesheets
+  "The Tailwind-built stylesheet under /css/ (generated; see ADR-0004)."
+  (static-root {:path "/css/" :root "public/css"
+                :cache-control stylesheet-cache-control}))
+
+(def ^:private scripts
+  "The vendored htmx under /js/ (committed and digest-pinned; see
+  `books.assets` and the 2026-08-10 amendment to ADR-0004)."
+  (static-root {:path "/js/" :root "public/js"
+                :cache-control script-cache-control}))
 
 (defn make-app
   "The Ring handler with its database dependency injected. `datasource` is nil
@@ -87,4 +110,5 @@
        ["/health" {:get health-handler :head health-handler}]])
      (ring/routes
       stylesheets
+      scripts
       (ring/create-default-handler)))))

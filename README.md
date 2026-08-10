@@ -35,6 +35,13 @@ The committed Tailwind input is `styles/app.css`; the generated
 `/css/app.css`. The Dockerfile build stage runs the same CSS build with a
 version-pinned, checksum-verified Tailwind binary.
 
+Client-side interactivity is [htmx](https://htmx.org), **vendored** rather than
+loaded from a CDN: the release is committed at
+`resources/public/js/htmx-<version>.min.js`, its version and SHA-256 are pinned
+in `src/books/assets.clj`, and the test suite re-hashes the committed bytes on
+every run. Nothing needs to be built or fetched for it —
+`scripts/vendor-htmx.sh` exists only to bump or re-verify it.
+
 ## Running it
 
 ```sh

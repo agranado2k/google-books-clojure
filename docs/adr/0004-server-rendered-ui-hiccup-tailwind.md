@@ -4,6 +4,9 @@
 - **Date**: 2026-08-09
 - **Deciders**: Arthur Granado, with agent research
 - **Supersedes / amends**: —
+- **Amended**: 2026-08-10 — clauses 5 and 6 extended for the vendored htmx (see
+  **Amendments** below). The decision is unchanged; its scope is stated for a
+  second asset type.
 - **Superseded by**: —
 
 ## Context and problem statement
@@ -149,6 +152,58 @@ serving scoped to the stylesheet.**
 - **Honest limitation**: checksum pinning protects against a changed artifact at
   a URL, not against a release that was malicious when it was published — the
   same boundary ADR-0002 records for digest pinning.
+
+## Amendments
+
+### 2026-08-10 — a second scoped static root, for a vendored htmx
+
+The search slice (ticket #5) needs client-side interactivity for the first
+time: a form that swaps a results fragment in place. htmx is how that is done
+here, which raises two questions this record already answers in spirit and now
+answers in letter. **This extends clauses 4, 5 and 6; it reverses nothing.**
+
+1. **htmx is vendored, not loaded from a CDN.** Considered option 4 under "CSS
+   pipeline" rejected a CDN for the stylesheet; a third-party `<script>` is the
+   same bet with a larger payout for whoever wins it, so the same answer holds.
+   The release is **committed** to the repo at
+   `resources/public/js/htmx-<version>.min.js`.
+2. **It is pinned the way clause 4 pins Tailwind, by a different mechanism for
+   a different reason.** The Tailwind binary is fetched at image-build time and
+   so must be verified with `ADD --checksum`; htmx is *content we serve*, so
+   committing it is strictly stronger — the bytes are a reviewable diff, the
+   build needs no network for them, and the bytes the suite exercises are the
+   bytes a container serves. The version and SHA-256 live in `books.assets`,
+   `test/books/assets_test.clj` re-hashes the committed file on **every test
+   run** (local and CI), and `scripts/vendor-htmx.sh` is the only sanctioned
+   way to fetch or re-verify it — it refuses to run if its own pins and
+   `books.assets` disagree. The digest was established from the npm registry
+   tarball for the release, whose own `integrity` hash was checked, and
+   cross-checked against the CDN copy of that release.
+3. **The static surface becomes exactly two named roots, not one wide one.**
+   Clause 5's rule is preserved as written: `/js/` is served by a *second*
+   handler rooted at `public/js`, never by re-rooting the existing one at
+   `public` or at `/`. The regression test that pins clause 5 now covers both
+   roots, including their `..` traversals. A `static-root` helper builds both,
+   so a third root is a data literal rather than a new copy of the chain — and
+   is still a deliberate, reviewable act.
+4. **Version-stamped URLs are cached forever, and that is clause 6 read
+   correctly.** Clause 6 couples `must-revalidate` to the stylesheet's
+   *unversioned* URL. The script's URL carries its version, so the bytes behind
+   it can never change and it is served
+   `Cache-Control: public, max-age=31536000, immutable`. Two policies now
+   exist, each derived from whether its URL is versioned — which is the rule
+   clause 6 was already stating. The stylesheet is untouched.
+5. **Still not decided here**: security response headers (clause 7's non-goal
+   is unchanged, and a CSP would now have a `script-src 'self'` story worth
+   writing when that ticket comes), asset fingerprinting for the *stylesheet*,
+   and any client-side framework beyond htmx's attribute vocabulary.
+
+**Consequence, stated honestly**: the repo now carries 50 KB of minified
+third-party JavaScript, which no reviewer will read. The pin plus the
+re-hashing test is what makes that a *known* 50 KB rather than a trusted one;
+it does not make the release itself trustworthy — the same boundary clause
+"checksum pinning protects against a changed artifact at a URL, not against a
+release that was malicious when published" already records for Tailwind.
 
 ## More information
 
