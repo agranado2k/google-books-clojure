@@ -59,6 +59,20 @@
   (and (header-is-true? request "hx-request")
        (not (header-is-true? request "hx-history-restore-request"))))
 
+(def ^:private search-cache-headers
+  {;; One URL, two representations, chosen by a REQUEST header — so any cache
+   ;; between us and the reader has to key on that header or it will replay a
+   ;; bare fragment into a document navigation (a page with no <html>, no
+   ;; header, no stylesheet).
+   "Vary" "HX-Request"
+   ;; …and `Vary` alone is not enough to rely on: intermediaries have a long
+   ;; history of normalising away headers they do not recognise, and this one
+   ;; is not a standard content-negotiation header. `no-store` rather than
+   ;; `private, no-cache` because there is nothing to gain from storing it: a
+   ;; search result is a projection of a third-party catalog that changes on
+   ;; its own schedule, and re-running the search is the cheap, correct answer.
+   "Cache-Control" "no-store"})
+
 (defn- search
   "GET /search, answering the same content two ways: the results fragment when
   htmx asks for it, the whole page otherwise — so the form still works without
@@ -74,9 +88,10 @@
           state (if (catalog/blank-query? query)
                   {:outcome :prompt}
                   (book-search query))]
-      (html (if (fragment-request? request)
-              (views/search-results state)
-              (views/search-page query state))))))
+      (-> (html (if (fragment-request? request)
+                  (views/search-results state)
+                  (views/search-page query state)))
+          (update :headers merge search-cache-headers)))))
 
 (def ^:private stylesheet-cache-control
   ;; The stylesheet URL is unversioned (/css/app.css), so a cached copy can
@@ -213,7 +228,10 @@
       (ring/router
        [["/" {:get landing :head landing}]
         ["/health" {:get health-handler :head health-handler}]
-        ["/search" {:get search-handler}]]
+        ;; HEAD as well as GET, like every other page route: without it this was
+        ;; the one path answering 405 — and reitit sends no `Allow` header with
+        ;; it, so a probe or link checker learned nothing from the refusal.
+        ["/search" {:get search-handler :head search-handler}]]
        ;; Query parameters, for the search form. Router-scoped rather than
        ;; wrapped around everything: the static roots take no parameters.
        {:data {:middleware [wrap-params]}})

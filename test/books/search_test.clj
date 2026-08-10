@@ -259,6 +259,26 @@
   (testing "a search is a GET; it does not answer writes"
     (is (not= 200 (:status ((app (stub/found [])) {:request-method :post :uri "/search"}))))))
 
+(deftest search-answers-head-like-every-other-page-route
+  (testing "HEAD /search answers 200 — / and /health both do, and so do the static roots"
+    ;; It was the one page route that did not, so a probe or a link checker got
+    ;; a 405 that reitit does not even give an Allow header to.
+    (let [response (search (stub/found []) "title=clojure" {:method :head})]
+      (is (= 200 (:status response)))
+      (is (str/starts-with? (get-in response [:headers "Content-Type"]) "text/html")))))
+
+(deftest search-tells-caches-that-one-url-serves-two-representations
+  ;; /search answers a whole page or a bare fragment at ONE URL, chosen by a
+  ;; request header. A shared cache that stored the fragment and replayed it to
+  ;; a document navigation would serve a page with no <html> and no header.
+  (doseq [[label opts] [["the page" {}]
+                        ["the fragment" {:htmx? true}]
+                        ["the prompt" {:htmx? true :query ""}]]]
+    (testing label
+      (let [response (search (stub/found [stub/sparse]) (get opts :query "title=clojure") opts)]
+        (is (= "HX-Request" (get-in response [:headers "Vary"])))
+        (is (= "no-store" (get-in response [:headers "Cache-Control"])))))))
+
 (deftest the-landing-page-points-at-the-search-page
   (testing "the slice is reachable without typing a URL"
     (let [rendered (body ((app (stub/found [])) {:request-method :get :uri "/"}))]
