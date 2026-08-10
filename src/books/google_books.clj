@@ -21,7 +21,8 @@
             [clojure.string :as str]
             [jsonista.core :as json])
   (:import (java.net URI URLEncoder)
-           (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers)
+           (java.net.http HttpClient HttpClient$Redirect HttpRequest
+                          HttpResponse$BodyHandlers)
            (java.nio.charset StandardCharsets)
            (java.time Duration)))
 
@@ -178,6 +179,14 @@
   does not start a thread nothing is going to use."
   (delay (-> (HttpClient/newBuilder)
              (.connectTimeout (:connect timeouts))
+             ;; Stated, not inherited. NEVER happens to be the builder's
+             ;; default today, but this is a security property — the request
+             ;; carries `X-goog-api-key`, and the JDK's redirect filter replays
+             ;; custom headers onto the redirected request, so one followed 302
+             ;; hands the credential to whatever origin the Location names. A
+             ;; property that matters that much does not get to live in
+             ;; somebody else's default.
+             (.followRedirects HttpClient$Redirect/NEVER)
              (.build))))
 
 (defn ^HttpClient http-client
@@ -191,10 +200,8 @@
   public so the one piece of this namespace that the canned-body tests cannot
   reach is still reachable by a test of its own."
   [url api-key]
-  ;; Redirects are deliberately NOT followed: the request carries the API key,
-  ;; and the JDK's redirect filter replays custom headers onto the new request,
-  ;; so a followed redirect would hand the key to whatever origin the redirect
-  ;; names. A 3xx therefore reads as :unavailable.
+  ;; Redirects are not followed — see `shared-client`. A 3xx therefore arrives
+  ;; here as a status, and `failure-reason` calls it :unavailable.
   (let [client (http-client)
         request (-> (HttpRequest/newBuilder (URI/create url))
                     (.timeout (:request timeouts))

@@ -148,7 +148,7 @@
                                    {:title "Clojure"})))))
 
 (deftest any-other-non-200-is-unavailable
-  (doseq [status [400 401 403 500 503]]
+  (doseq [status [301 302 303 307 308 400 401 403 500 503]]
     (is (= {:outcome :error :reason :unavailable}
            ((adapter (constantly {:status status :body "{}"}))
                                    {:title "Clojure"}))
@@ -241,6 +241,39 @@
                 (str "15 fetches must not leave 15 live HttpClients behind; "
                      "selector threads grew by " grew)))))
       (finally (.stop jetty)))))
+
+(deftest the-default-fetch-never-follows-a-redirect
+  ;; The property that protects the key: the request carries `X-goog-api-key`,
+  ;; and the JDK's redirect filter replays custom headers onto the redirected
+  ;; request — so a followed 302 would hand the credential to whatever origin
+  ;; the Location names. It used to rest on an UNDECLARED builder default and
+  ;; on nothing at all in the suite.
+  (let [followed (atom [])
+        elsewhere (jetty/run-jetty
+                   (fn [request]
+                     (swap! followed conj (get-in request [:headers "x-goog-api-key"]))
+                     {:status 200 :headers {"Content-Type" "application/json"}
+                      :body "{\"items\":[]}"})
+                   {:host "127.0.0.1" :port 0 :join? false})
+        elsewhere-url (str "http://127.0.0.1:"
+                           (.getLocalPort (aget (.getConnectors elsewhere) 0)) "/stolen")
+        redirector (jetty/run-jetty
+                    (constantly {:status 302 :headers {"Location" elsewhere-url} :body ""})
+                    {:host "127.0.0.1" :port 0 :join? false})
+        redirect-url (str "http://127.0.0.1:"
+                          (.getLocalPort (aget (.getConnectors redirector) 0)) "/v")]
+    (try
+      (testing "the policy is declared, not inherited from a default that could change"
+        (is (= java.net.http.HttpClient$Redirect/NEVER (.followRedirects (google/http-client)))))
+      (let [{:keys [status]} (google/http-fetch redirect-url api-key)]
+        (testing "the 3xx surfaces as the status, for `failure-reason` to call a fault"
+          (is (= 302 status)))
+        (testing "and the redirect target is never asked for anything"
+          ;; The vector holds what the target saw in `X-goog-api-key`, so a
+          ;; regression reports not just that the redirect was followed but
+          ;; that the credential travelled with it.
+          (is (= [] @followed) "a request reached the redirect's origin")))
+      (finally (.stop redirector) (.stop elsewhere)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The key is a secret, including on the way out
