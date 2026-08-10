@@ -42,14 +42,28 @@ Keep definitions short enough to read in a session-start scan. When one needs a
 page of explanation, that page is an ADR and the entry points at it.
 -->
 
-## <Context name>
+## Catalog search
 
-- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
-  - _Avoid_: <near-synonym> (<why>).
-
-## <Second context name>
-
-- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
+- **Volume** — one entry in the Catalog: a single *edition* of a book as the
+  catalog describes it — its title, authors, published date, description and
+  cover thumbnail. Read type (a value object built from a catalog response,
+  never persisted). The name is the catalog's own, and it is what a search
+  returns. Ref: `books.catalog` (the port's docstring carries the field list),
+  ADR-0004 (rendered by a Hiccup2 page, always escaped).
+  - _Avoid_: **Book** — one book has many Volumes (editions, translations,
+    reprints), so the two are not the same thing and using both invites an
+    invented distinction between them.
+  - _Avoid_: **Result**, **Item**, **Hit** — these name a Volume's role in one
+    response rather than what it is.
+- **Catalog** — the external corpus of Volumes the app searches: Google Books.
+  Not ours, not persisted, and reachable only through the Book search port —
+  so "the Catalog is unavailable" is a state the UI renders, never an exception
+  that escapes a handler. Ref: `books.catalog`.
+- **Book search** — the port the app searches the Catalog through: the
+  `books.catalog/BookSearch` protocol, whose one operation is
+  `search-volumes`. Port. Its real adapter is `books.google-books`; tests
+  inject a stub. The handler depends on this and never on an adapter.
+  Ref: `books.catalog`, ADR-0001 (the handler is the test seam).
 
 ---
 
@@ -61,4 +75,8 @@ the terms that are ambiguous here and are therefore banned. Each line names the
 banned word and the word to use instead.
 -->
 
-- **<banned word>** — ambiguous here (<why>). Use **<term>** or **<term>**.
+- **Book** — ambiguous here (a book is a work; the Catalog answers editions of
+  it). Use **Volume** for what a search returns. The word survives in the
+  product's name and in the `books` namespace root, and nowhere else.
+- **Result**, **Item**, **Hit** — ambiguous (they name a position in a
+  response, not a thing). Use **Volume**.
