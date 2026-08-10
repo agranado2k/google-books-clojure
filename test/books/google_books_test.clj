@@ -55,6 +55,26 @@
           (is (str/includes? fields rendered)
               (str "fields must request " rendered)))))))
 
+(deftest the-adapter-fetches-exactly-the-url-it-builds
+  ;; Every other double here discards its argument, so nothing pinned the URL
+  ;; the adapter ACTUALLY requests: dropping maxResults, or handing the fetch a
+  ;; nil key, would have kept the whole suite green. This is the one test that
+  ;; closes that gap, and it is what makes the `search-url` assertions above
+  ;; assertions about the real request rather than about a private helper.
+  (let [requested (atom nil)
+        query {:title "Clojure" :author "Hickey"}
+        result ((adapter (fn [url]
+                           (reset! requested url)
+                           {:status 200 :body "{\"items\":[]}"}))
+                query)]
+    (is (= {:outcome :ok :volumes []} result) "precondition: the fetch was reached")
+    (testing "the URL fetched is the URL the builder produces, character for character"
+      (is (= (google/search-url query api-key) @requested)))
+    (testing "…and it is still the whole request, not a URL that lost a parameter"
+      (is (str/includes? @requested "maxResults=20"))
+      (is (str/includes? @requested "intitle:%22Clojure%22+inauthor:%22Hickey%22"))
+      (is (str/includes? @requested "fields=")))))
+
 ;; ---------------------------------------------------------------------------
 ;; The response the catalog gives back
 ;; ---------------------------------------------------------------------------
