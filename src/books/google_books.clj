@@ -163,6 +163,28 @@
 ;; The adapter
 ;; ---------------------------------------------------------------------------
 
+(def ^:private shared-client
+  "ONE `HttpClient` for the life of the process.
+
+  A client is not a request object: it owns a connection pool and starts a
+  selector-manager thread, and on this JDK it has no `close`, so a client built
+  per request is a leak with a thread attached. Measured before this was
+  hoisted: 36 -> 131 JVM threads (59 of them `HttpClient-*`) after 40
+  concurrent searches, still there after 30 seconds of idle, and released only
+  by a forced GC.
+
+  A `delay` rather than a bare `def` so that requiring this namespace — which
+  the handler does at boot, and which a test does merely to read `q-param` —
+  does not start a thread nothing is going to use."
+  (delay (-> (HttpClient/newBuilder)
+             (.connectTimeout (:connect timeouts))
+             (.build))))
+
+(defn ^HttpClient http-client
+  "The one client every fetch uses. Public so a test can prove that it IS one."
+  []
+  @shared-client)
+
 (defn http-fetch
   "GET `url` with `api-key` as the credential header, answering
   `{:status … :body …}`. Bounded by `timeouts`. This is the default `:fetch` —
@@ -173,9 +195,7 @@
   ;; and the JDK's redirect filter replays custom headers onto the new request,
   ;; so a followed redirect would hand the key to whatever origin the redirect
   ;; names. A 3xx therefore reads as :unavailable.
-  (let [client (-> (HttpClient/newBuilder)
-                   (.connectTimeout (:connect timeouts))
-                   (.build))
+  (let [client (http-client)
         request (-> (HttpRequest/newBuilder (URI/create url))
                     (.timeout (:request timeouts))
                     (.header "Accept" "application/json")

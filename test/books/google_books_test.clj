@@ -210,6 +210,38 @@
         (is (= 429 (:status (google/http-fetch (str base "/refused") api-key)))))
       (finally (.stop jetty)))))
 
+(defn- selector-threads
+  "How many java.net.http selector-manager threads are alive. The JDK starts
+  exactly one per HttpClient and keeps it alive for the life of that client, so
+  this number IS the number of live clients — which is what makes the leak
+  below measurable rather than merely arguable."
+  []
+  (count (filter #(str/includes? (.getName ^Thread %) "HttpClient-")
+                 (keys (Thread/getAllStackTraces)))))
+
+(deftest the-default-fetch-reuses-one-http-client
+  ;; Regression: `http-fetch` built a fresh HttpClient per request and never
+  ;; closed it. Measured before the fix: 36 -> 131 JVM threads (59 of them
+  ;; HttpClient-*) after 40 concurrent searches, surviving 30s of idle and
+  ;; freed only by a forced GC.
+  (let [jetty (jetty/run-jetty
+               (constantly {:status 200
+                            :headers {"Content-Type" "application/json"}
+                            :body "{\"items\":[]}"})
+               {:host "127.0.0.1" :port 0 :join? false})
+        url (str "http://127.0.0.1:" (.getLocalPort (aget (.getConnectors jetty) 0)) "/v")]
+    (try
+      (testing "the client is one instance, handed out rather than rebuilt"
+        (is (identical? (google/http-client) (google/http-client))))
+      (testing "fetching many times does not accumulate clients"
+        (let [before (selector-threads)]
+          (dotimes [_ 15] (google/http-fetch url api-key))
+          (let [grew (- (selector-threads) before)]
+            (is (<= grew 1)
+                (str "15 fetches must not leave 15 live HttpClients behind; "
+                     "selector threads grew by " grew)))))
+      (finally (.stop jetty)))))
+
 ;; ---------------------------------------------------------------------------
 ;; The key is a secret, including on the way out
 ;; ---------------------------------------------------------------------------
