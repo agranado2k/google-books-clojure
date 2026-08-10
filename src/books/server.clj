@@ -51,5 +51,6 @@
                :database-url (System/getenv "DATABASE_URL")
                :db-optional? (db-optional? (System/getenv "DB_OPTIONAL"))
                ;; Read here and nowhere else, and never logged: it is a
-               ;; credential, and it travels in the URL the adapter builds.
+               ;; credential. It travels as a request header, never in a URL
+               ;; (ADR-0003 clause 2, amended 2026-08-10).
                :books-api-key (System/getenv "GOOGLE_BOOKS_API_KEY")})))

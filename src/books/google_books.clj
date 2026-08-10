@@ -4,10 +4,15 @@
 
   Two rules shape this namespace.
 
-  1. **The API key is a secret**, and the key travels in the URL — so the URL
-     is never logged, never rendered, and never allowed into an exception
-     message. Anything derived from it goes through `redact` first. This is
-     ADR-0003's credential rule applied to the second credential the app holds.
+  1. **The API key is a secret, and it never travels in a URL.** ADR-0003
+     clause 2 binds credentials out of URL strings, and it binds this call too:
+     the key goes in the `X-goog-api-key` request header, which the Books API
+     honours identically to the `?key=` parameter (verified against the live
+     API — a bogus key answers 400 \"API key not valid\" through both, the
+     key-validation path, while sending no key at all answers 429, the
+     anonymous-quota path). The search URL therefore holds no credential and is
+     safe to log, render, or put in an exception message. `redact` remains as a
+     second line for a diagnostic built from something other than the URL.
   2. **A search never throws.** Every fault — no key, a refusal, a timeout, a
      body that is not the JSON we asked for — becomes one of the outcomes the
      Book search contract documents, because they are all states the search
@@ -65,15 +70,23 @@
                   title (conj (term "intitle" title))
                   author (conj (term "inauthor" author)))))
 
+(def ^:private api-key-header
+  "The header the API key travels in. The Books API accepts the key either here
+  or as a `key=` query parameter and treats the two identically; this repo uses
+  the header, because ADR-0003 clause 2 keeps credentials out of URL strings —
+  URLs are the thing that ends up in logs, proxies, `Referer`, and exception
+  messages."
+  "X-goog-api-key")
+
 (defn search-url
-  "The full volumes URL for `query`. **Carries the API key** — do not log it,
-  render it, or put it in an exception message."
-  [query api-key]
+  "The full volumes URL for `query`. Carries **no credential**: the API key is a
+  request header (see `http-fetch`), so this string is safe to log, render, or
+  put in an exception message."
+  [query]
   (str endpoint
        "?q=" (q-param query)
        "&maxResults=" max-results
-       "&fields=" (encode fields)
-       "&key=" (encode api-key)))
+       "&fields=" (encode fields)))
 
 ;; ---------------------------------------------------------------------------
 ;; The response
@@ -115,8 +128,12 @@
 ;; ---------------------------------------------------------------------------
 
 (defn redact
-  "`text` with every occurrence of `secret` replaced. The only sanctioned way
-  to turn anything derived from a search URL into something loggable."
+  "`text` with every occurrence of `secret` replaced. Now that the key is a
+  header rather than a URL parameter, this is a second line rather than the
+  control: a diagnostic built from the search URL cannot leak a key the URL
+  does not hold. It earns its keep on the one path where a message is built
+  from something we did not construct — `report!` below, which prints an
+  exception message whose text belongs to whatever threw it."
   [text secret]
   (if (seq secret)
     (str/replace text secret "[redacted]")
@@ -124,7 +141,8 @@
 
 (defn- report!
   "Report a fault on stderr: exception class and message only, redacted, and
-  never the URL — which holds the key."
+  never the request. The URL no longer holds the key, but the message text
+  belongs to whatever threw, so it is redacted before it is printed."
   [^Exception e api-key]
   (binding [*out* *err*]
     (println (redact (str "book search failed: " (.getName (class e)) ": " (ex-message e))
@@ -146,19 +164,22 @@
 ;; ---------------------------------------------------------------------------
 
 (defn http-fetch
-  "GET `url`, answering `{:status … :body …}`. Bounded by `timeouts`. This is
-  the default `:fetch` — public so the one piece of this namespace that the
-  canned-body tests cannot reach is still reachable by a test of its own."
-  [url]
-  ;; Redirects are deliberately NOT followed (the builder's default): the URL
-  ;; carries the API key, and a followed redirect would hand it to whatever
-  ;; origin the redirect names. A 3xx therefore reads as :unavailable.
+  "GET `url` with `api-key` as the credential header, answering
+  `{:status … :body …}`. Bounded by `timeouts`. This is the default `:fetch` —
+  public so the one piece of this namespace that the canned-body tests cannot
+  reach is still reachable by a test of its own."
+  [url api-key]
+  ;; Redirects are deliberately NOT followed: the request carries the API key,
+  ;; and the JDK's redirect filter replays custom headers onto the new request,
+  ;; so a followed redirect would hand the key to whatever origin the redirect
+  ;; names. A 3xx therefore reads as :unavailable.
   (let [client (-> (HttpClient/newBuilder)
                    (.connectTimeout (:connect timeouts))
                    (.build))
         request (-> (HttpRequest/newBuilder (URI/create url))
                     (.timeout (:request timeouts))
                     (.header "Accept" "application/json")
+                    (.header api-key-header api-key)
                     (.GET)
                     (.build))
         response (.send client request (HttpResponse$BodyHandlers/ofString))]
@@ -170,8 +191,9 @@
 
   * `:api-key` — `GOOGLE_BOOKS_API_KEY`. Absent or blank is not a boot failure:
     every search then answers `:not-configured`, which the page renders.
-  * `:fetch` — the HTTP call, injectable so the URL and parse logic can be
-    tested against canned bodies without calling Google."
+  * `:fetch` — the HTTP call, a function of the URL and the key, injectable so
+    the URL and parse logic can be tested against canned bodies without calling
+    Google."
   [{:keys [api-key fetch] :or {fetch http-fetch}}]
   (let [api-key (when (seq (some-> api-key str/trim)) (str/trim api-key))]
     (fn [query]
@@ -180,7 +202,7 @@
         ;; two owners that could drift apart.
         (catalog/not-configured query)
         (try
-          (let [{:keys [status body]} (fetch (search-url query api-key))]
+          (let [{:keys [status body]} (fetch (search-url query) api-key)]
             (if-let [reason (failure-reason status)]
               {:outcome :error :reason reason}
               (parse-body body)))

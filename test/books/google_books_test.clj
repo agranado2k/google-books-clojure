@@ -41,12 +41,15 @@
   (testing "a term cannot smuggle in another query parameter"
     (is (not (str/includes? (google/q-param {:title "x&key=stolen"}) "&")))))
 
-(deftest search-url-carries-the-key-the-cap-and-only-the-rendered-fields
-  (let [url (google/search-url {:title "Clojure"} api-key)]
+(deftest search-url-carries-the-cap-the-fields-and-no-credential
+  (let [url (google/search-url {:title "Clojure"})]
     (testing "the volumes endpoint, over TLS"
       (is (str/starts-with? url "https://www.googleapis.com/books/v1/volumes?")))
-    (testing "the API key travels as the key parameter"
-      (is (str/includes? url (str "key=" api-key))))
+    (testing "no credential is in the URL at all — ADR-0003 clause 2"
+      ;; The key now travels in a request header, so this string is safe to
+      ;; log, render, and put in an exception message.
+      (is (not (str/includes? url api-key)))
+      (is (not (str/includes? url "key="))))
     (testing "the result count is capped well under the API's own limit of 40"
       (is (str/includes? url "maxResults=20")))
     (testing "fields asks for exactly what the page renders, and no more"
@@ -63,17 +66,20 @@
   ;; assertions about the real request rather than about a private helper.
   (let [requested (atom nil)
         query {:title "Clojure" :author "Hickey"}
-        result ((adapter (fn [url]
-                           (reset! requested url)
+        result ((adapter (fn [url key]
+                           (reset! requested [url key])
                            {:status 200 :body "{\"items\":[]}"}))
                 query)]
     (is (= {:outcome :ok :volumes []} result) "precondition: the fetch was reached")
     (testing "the URL fetched is the URL the builder produces, character for character"
-      (is (= (google/search-url query api-key) @requested)))
+      (is (= (google/search-url query) (first @requested))))
+    (testing "and the credential is handed to the fetch separately, to become a header"
+      (is (= api-key (second @requested))))
     (testing "…and it is still the whole request, not a URL that lost a parameter"
-      (is (str/includes? @requested "maxResults=20"))
-      (is (str/includes? @requested "intitle:%22Clojure%22+inauthor:%22Hickey%22"))
-      (is (str/includes? @requested "fields=")))))
+      (let [url (first @requested)]
+        (is (str/includes? url "maxResults=20"))
+        (is (str/includes? url "intitle:%22Clojure%22+inauthor:%22Hickey%22"))
+        (is (str/includes? url "fields="))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The response the catalog gives back
@@ -151,7 +157,7 @@
 (deftest an-unreachable-catalog-is-unavailable
   (testing "a network fault is an outcome the page renders, never an exception"
     (is (= {:outcome :error :reason :unavailable}
-           ((adapter (fn [_] (throw (java.io.IOException. "connect timed out"))))
+           ((adapter (fn [_ _] (throw (java.io.IOException. "connect timed out"))))
                                    {:title "Clojure"})))))
 
 (deftest an-unparseable-body-is-unavailable
@@ -163,7 +169,7 @@
 (deftest without-a-key-nothing-is-fetched
   (testing "an absent GOOGLE_BOOKS_API_KEY degrades the page; it must not crash boot"
     (let [called (atom false)
-          adapter (google/book-search {:api-key nil :fetch (fn [_] (reset! called true) nil)})]
+          adapter (google/book-search {:api-key nil :fetch (fn [_ _] (reset! called true) nil)})]
       (is (= {:outcome :error :reason :not-configured}
              (adapter {:title "Clojure"})))
       (is (false? @called) "no key means no call")))
@@ -177,8 +183,10 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-default-fetch-really-speaks-http
-  (let [jetty (jetty/run-jetty
+  (let [seen (atom nil)
+        jetty (jetty/run-jetty
                (fn [request]
+                 (reset! seen request)
                  {:status (if (= "/refused" (:uri request)) 429 200)
                   :headers {"Content-Type" "application/json"}
                   :body "{\"items\":[{\"id\":\"a\",\"volumeInfo\":{\"title\":\"Over the wire\"}}]}"})
@@ -186,11 +194,20 @@
         base (str "http://127.0.0.1:" (.getLocalPort (aget (.getConnectors jetty) 0)))]
     (try
       (testing "status and body come back as the adapter expects them"
-        (let [{:keys [status body]} (google/http-fetch (str base "/books/v1/volumes?q=x"))]
+        (let [{:keys [status body]} (google/http-fetch (str base "/books/v1/volumes?q=x") api-key)]
           (is (= 200 status))
           (is (= [{:id "a" :title "Over the wire"}] (:volumes (google/parse-body body))))))
+      (testing "the credential is sent as a request header, never in the URL"
+        ;; ADR-0003 clause 2. Verified against the live Books API before this
+        ;; moved: `X-goog-api-key: <key>` is honoured identically to `?key=` —
+        ;; a bogus key answers 400 "API key not valid" through both (the
+        ;; key-validation path), while no key at all answers 429 (the
+        ;; anonymous-quota path), so the header genuinely authenticates.
+        (is (= api-key (get-in @seen [:headers "x-goog-api-key"])))
+        (is (not (str/includes? (str (:query-string @seen)) api-key)))
+        (is (not (str/includes? (str (:query-string @seen)) "key="))))
       (testing "a refusal is reported by status, not by throwing"
-        (is (= 429 (:status (google/http-fetch (str base "/refused"))))))
+        (is (= 429 (:status (google/http-fetch (str base "/refused") api-key)))))
       (finally (.stop jetty)))))
 
 ;; ---------------------------------------------------------------------------
@@ -198,19 +215,22 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest failures-never-carry-the-key
-  (testing "the URL holds the key, so a diagnostic built from it must be redacted"
-    (let [message (str "GET " (google/search-url {:title "Clojure"} api-key) " failed")]
-      (is (str/includes? message api-key) "precondition: the URL embeds the key")
+  (testing "the primary control: the search URL simply has no credential in it"
+    (let [message (str "GET " (google/search-url {:title "Clojure"}) " failed")]
+      (is (not (str/includes? message api-key))
+          "a diagnostic built from the URL cannot leak a key the URL does not hold")))
+  (testing "redaction is the second line, for a message built from something else"
+    (let [message (str "connect failed for " api-key)]
       (is (not (str/includes? (google/redact message api-key) api-key)))
       (is (str/includes? (google/redact message api-key) "[redacted]"))
       (testing "redaction with no secret to redact is a no-op, never an NPE"
         (is (= message (google/redact message nil)))
-        (is (= message (google/redact message "")))))
-    (testing "a thrown fault is reported without the URL that caused it"
-      (let [err (java.io.StringWriter.)
-            boom (fn [_] (throw (ex-info (str "connect failed: " (google/search-url {:title "x"} api-key)) {})))]
-        (binding [*err* err]
-          ((adapter boom) {:title "x"}))
-        (is (not (str/includes? (str err) api-key))
-            "the key must never reach a log line")
-        (is (pos? (count (str err))) "…but the fault is still reported")))))
+        (is (= message (google/redact message ""))))))
+  (testing "a thrown fault is reported with the key stripped out of it either way"
+    (let [err (java.io.StringWriter.)
+          boom (fn [_ key] (throw (ex-info (str "connect failed, credential was " key) {})))]
+      (binding [*err* err]
+        ((adapter boom) {:title "x"}))
+      (is (not (str/includes? (str err) api-key))
+          "the key must never reach a log line")
+      (is (pos? (count (str err))) "…but the fault is still reported"))))
