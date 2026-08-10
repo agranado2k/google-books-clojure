@@ -42,14 +42,31 @@
   rather than a protocol whose only method would have to grow a parameter."
   (:require [clojure.string :as str]))
 
+(defn- single
+  "One value for a request parameter, whatever shape the parameter middleware
+  handed us. Ring's `wrap-params` answers a **vector** when the same name is
+  repeated (`/search?title=a&title=b`), so a normalizer that assumed a string
+  turned a crafted URL into a 500 — which is why this is total over the shape
+  rather than trusting it.
+
+  The FIRST value wins. The form submits each field once, so a repeat is a
+  crawler, a stale bookmark, or someone probing; answering the first one keeps
+  the search working, which is the only outcome a reader can act on. Anything
+  non-nil is coerced to a string for the same reason: normalization must never
+  be the thing that throws."
+  [v]
+  (if (sequential? v) (first v) v))
+
 (defn query
   "Normalize raw request params into a search query: trimmed, and with blank
   fields dropped so `blank-query?` can answer honestly and so an adapter never
-  builds `intitle:\"\"`."
+  builds `intitle:\"\"`.
+
+  Total by contract: **no request may make this throw** (see `single`)."
   [params]
   (into {}
         (keep (fn [k]
-                (let [v (some-> (get params k) str/trim)]
+                (let [v (some-> (single (get params k)) str str/trim)]
                   (when (seq v) [k v]))))
         [:title :author]))
 

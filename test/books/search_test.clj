@@ -77,6 +77,27 @@
       (is (= "prompt" (state-of (search (stub/found [] seen) "title=%20%20&author="))))
       (is (= [] @seen)))))
 
+(deftest a-repeated-parameter-still-searches-instead-of-crashing
+  ;; Regression: `wrap-params` answers a VECTOR when a name is repeated
+  ;; (`?title=a&title=b`), and a query normalizer that assumed a string threw —
+  ;; which, with no error middleware, served a stack trace to anyone who could
+  ;; type a URL.
+  (testing "a repeated title searches for the first value"
+    (let [seen (atom [])
+          response (search (stub/found [stub/sparse] seen) "title=a&title=b" {:htmx? true})]
+      (is (= 200 (:status response)))
+      (is (= "results" (state-of response)))
+      (is (= [{:title "a"}] @seen))))
+  (testing "…and so does a repeated author, alongside a repeated title"
+    (let [seen (atom [])
+          response (search (stub/found [] seen) "title=a&title=b&author=c&author=d" {:htmx? true})]
+      (is (= 200 (:status response)))
+      (is (= [{:title "a" :author "c"}] @seen))))
+  (testing "a repeated blank parameter is still a blank query, not a crash"
+    (let [response (search (stub/found []) "title=&title=%20" {:htmx? true})]
+      (is (= 200 (:status response)))
+      (is (= "prompt" (state-of response))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Searching: by title, by author, by both
 ;; ---------------------------------------------------------------------------

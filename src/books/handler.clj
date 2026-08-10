@@ -98,6 +98,58 @@
       ([request] (stamp (handler request)))
       ([request respond raise] (handler request (comp respond stamp) raise)))))
 
+;; ---------------------------------------------------------------------------
+;; The last line: nothing internal reaches the caller
+;; ---------------------------------------------------------------------------
+
+(def ^:private server-error-body
+  "The entire body of a 500. No exception class, no stack frames, no namespace
+  names, no framework or server identifiers — an anonymous caller learns that
+  the request failed and nothing whatsoever about what runs here.
+
+  Written as one literal rather than through `books.views` deliberately: this
+  page has to render when the code that renders pages is what broke."
+  (str "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+       "<title>Something went wrong</title></head>"
+       "<body><h1>Something went wrong</h1>"
+       "<p>The request could not be completed. Please try again.</p>"
+       "</body></html>"))
+
+(defn- server-error []
+  {:status 500
+   :headers {"Content-Type" "text/html; charset=utf-8"
+             "Cache-Control" "no-store"}
+   :body server-error-body})
+
+(defn- report-failure!
+  "One stderr line per unhandled fault: exception class and message, and
+  nothing else. Never the request, the URI, the params or the ex-data — every
+  one of those can carry reader input or a credential, and this line is the
+  operator's, not the caller's."
+  [^Throwable t]
+  (binding [*out* *err*]
+    (println (str "unhandled request failure: " (.getName (class t)) ": " (ex-message t)))))
+
+(defn- wrap-error-page
+  "Catch everything, so no handler can serve internals. Ring has no error
+  middleware of its own and Jetty's fallback is its own error page — a body
+  naming the failing namespace, the framework frames and the server version.
+  That page is a disclosure, so this one is wrapped OUTSIDE every route,
+  including the static roots and the default handler.
+
+  Throwable rather than Exception: an Error (a bad cast compiled by an
+  unexpected type, an assertion) is exactly as disclosing and exactly as
+  survivable at the request boundary."
+  [handler]
+  (letfn [(fail! [t] (report-failure! t) (server-error))]
+    (fn
+      ([request]
+       (try (handler request)
+            (catch Throwable t (fail! t))))
+      ([request respond raise]
+       (try (handler request respond (fn [t] (respond (fail! t))))
+            (catch Throwable t (respond (fail! t))))))))
+
 (defn- static-root
   "A read-only static surface: the classpath tree `root`, mounted at `path`,
   with its own cache policy.
@@ -142,15 +194,16 @@
   (let [check (db/checker datasource (cond-> {} probe (assoc :probe probe)))
         health-handler (health check db-optional?)
         search-handler (search (or book-search catalog/not-configured))]
-    (ring/ring-handler
-     (ring/router
-      [["/" {:get landing :head landing}]
-       ["/health" {:get health-handler :head health-handler}]
-       ["/search" {:get search-handler}]]
-      ;; Query parameters, for the search form. Router-scoped rather than
-      ;; wrapped around everything: the static roots take no parameters.
-      {:data {:middleware [wrap-params]}})
-     (ring/routes
-      stylesheets
-      scripts
-      (ring/create-default-handler)))))
+    (wrap-error-page
+     (ring/ring-handler
+      (ring/router
+       [["/" {:get landing :head landing}]
+        ["/health" {:get health-handler :head health-handler}]
+        ["/search" {:get search-handler}]]
+       ;; Query parameters, for the search form. Router-scoped rather than
+       ;; wrapped around everything: the static roots take no parameters.
+       {:data {:middleware [wrap-params]}})
+      (ring/routes
+       stylesheets
+       scripts
+       (ring/create-default-handler))))))

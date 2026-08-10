@@ -121,6 +121,43 @@
       (is (= 404 (:status (app {:request-method :get :uri "/nope"})))))))
 
 ;; ---------------------------------------------------------------------------
+;; A handler that throws must not become a disclosure.
+;; Regression: with no error middleware, Jetty answered its own error page —
+;; a 4.7 KB body naming the failing namespace, the reitit and Jetty stack
+;; frames, and the server version — to an anonymous caller.
+;; ---------------------------------------------------------------------------
+
+(defn- throwing-app
+  "An app whose search port is defective: it throws rather than answering an
+  outcome. Nothing else can reach the error path on purpose, which is the
+  point — the middleware has to hold for the handler nobody predicted."
+  []
+  (handler/make-app nil {:db-optional? true
+                         :book-search (fn [_query]
+                                        (throw (ex-info "port blew up" {:secret "s3cret"})))}))
+
+(deftest a-throwing-handler-answers-a-minimal-500
+  (let [errors (java.io.StringWriter.)
+        response (binding [*err* errors]
+                   ((throwing-app) {:request-method :get :uri "/search"
+                                    :query-string "title=clojure"}))
+        body (str (:body response))]
+    (testing "the caller gets a 500 that is an HTML page, not a framework dump"
+      (is (= 500 (:status response)))
+      (is (str/starts-with? (str (header response "Content-Type")) "text/html")))
+    (testing "and nothing internal is in it"
+      (doseq [leak ["exception" "clojure." "reitit" "jetty" "s3cret" "port blew up" "\tat "]]
+        (is (not (str/includes? (str/lower-case body) (str/lower-case leak)))
+            (str "the 500 body must not mention " (pr-str leak)))))
+    (testing "the fault is reported server-side — class and message only"
+      (let [reported (str errors)]
+        (is (str/includes? reported "ExceptionInfo"))
+        (is (str/includes? reported "port blew up"))
+        (testing "never the request, the params, or the ex-data — they carry reader input"
+          (is (not (str/includes? reported "s3cret")))
+          (is (not (str/includes? reported "title=clojure"))))))))
+
+;; ---------------------------------------------------------------------------
 ;; The static surface: /css/ and nothing else.
 ;; Backed by test-resources/public/css/fixture.css so these never depend on the
 ;; generated (gitignored) stylesheet having been built.
