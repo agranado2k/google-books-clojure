@@ -39,11 +39,25 @@
 (defn- landing [_request]
   (html (views/landing-page)))
 
-(defn- htmx-request?
-  "Whether htmx is asking, rather than a browser navigating. htmx sends this
-  header on every request it makes; a plain form GET does not."
+(defn- header-is-true? [request name]
+  (= "true" (get-in request [:headers name])))
+
+(defn- fragment-request?
+  "Whether to answer the results fragment rather than the whole page.
+
+  htmx sends `HX-Request: true` on every request it makes, and a plain form GET
+  does not — so that header alone looks like the whole test. It is not. On a
+  history cache miss htmx REPLAYS the entry as an hx-request: it sends
+  `HX-Request: true` (config `historyRestoreAsHxRequest`, true by default) AND
+  `HX-History-Restore-Request: true`, then swaps the answer into
+  `document.body`. Answering the fragment there replaces the entire document
+  with the bare results region — pressing Back after a search destroys the page.
+
+  A restore therefore wants the same thing a browser navigation wants: the
+  whole page."
   [request]
-  (= "true" (get-in request [:headers "hx-request"])))
+  (and (header-is-true? request "hx-request")
+       (not (header-is-true? request "hx-history-restore-request"))))
 
 (defn- search
   "GET /search, answering the same content two ways: the results fragment when
@@ -60,7 +74,7 @@
           state (if (catalog/blank-query? query)
                   {:outcome :prompt}
                   (book-search query))]
-      (html (if (htmx-request? request)
+      (html (if (fragment-request? request)
               (views/search-results state)
               (views/search-page query state))))))
 

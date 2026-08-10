@@ -22,10 +22,11 @@
   "GET /search with the given query string. `:htmx? true` sends the header htmx
   sends, which is what asks for the fragment instead of the page."
   ([book-search query-string] (search book-search query-string {}))
-  ([book-search query-string {:keys [htmx?]}]
+  ([book-search query-string {:keys [htmx? headers method]}]
    ((app book-search)
-    (cond-> {:request-method :get :uri "/search" :query-string query-string}
-      htmx? (assoc :headers {"hx-request" "true"})))))
+    (cond-> {:request-method (or method :get) :uri "/search" :query-string query-string}
+      htmx? (assoc :headers {"hx-request" "true"})
+      headers (update :headers merge headers)))))
 
 (defn- body [response] (str (:body response)))
 
@@ -140,6 +141,28 @@
       (is (str/includes? rendered "id=\"results\""))
       (is (not (str/includes? rendered "<html")))
       (is (not (str/includes? rendered "<header"))))))
+
+(deftest a-history-restore-answers-the-whole-page-even-though-htmx-asked
+  ;; Regression: htmx 2.0.10 restores a history entry by REPLAYING it as an
+  ;; hx-request — it sends `HX-Request: true` AND `HX-History-Restore-Request:
+  ;; true`, then swaps the answer into document.body with innerHTML. Answering
+  ;; the fragment therefore replaced the whole page with the bare results
+  ;; region: pressing Back after a search destroyed the page.
+  (testing "both headers together: the full document, so Back restores a page"
+    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure"
+                                 {:htmx? true
+                                  :headers {"hx-history-restore-request" "true"}}))]
+      (is (str/includes? rendered "<html"))
+      (is (str/includes? rendered "<header"))
+      (is (str/includes? rendered "Programming Clojure"))))
+  (testing "hx-request alone is still the fragment — the ordinary search swap"
+    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure" {:htmx? true}))]
+      (is (not (str/includes? rendered "<html")))))
+  (testing "a restore header htmx did not set to \"true\" does not disable the fragment"
+    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure"
+                                 {:htmx? true
+                                  :headers {"hx-history-restore-request" "false"}}))]
+      (is (not (str/includes? rendered "<html"))))))
 
 (deftest a-plain-search-answers-the-whole-page-with-its-results
   (testing "without htmx the same URL still works — form GET, full page back"
