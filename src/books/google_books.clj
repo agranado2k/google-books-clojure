@@ -1,6 +1,6 @@
 (ns books.google-books
-  "The real `books.catalog/BookSearch` adapter: the Google Books **volumes**
-  endpoint, reached over plain `java.net.http` (no new dependency).
+  "The real **Book search** adapter (see `books.catalog`): the Google Books
+  **volumes** endpoint, reached over plain `java.net.http` (no new dependency).
 
   Two rules shape this namespace.
 
@@ -9,9 +9,9 @@
      message. Anything derived from it goes through `redact` first. This is
      ADR-0003's credential rule applied to the second credential the app holds.
   2. **A search never throws.** Every fault — no key, a refusal, a timeout, a
-     body that is not the JSON we asked for — becomes one of the outcomes
-     `books.catalog/BookSearch` documents, because they are all states the
-     search page has to render anyway."
+     body that is not the JSON we asked for — becomes one of the outcomes the
+     Book search contract documents, because they are all states the search
+     page has to render anyway."
   (:require [books.catalog :as catalog]
             [clojure.string :as str]
             [jsonista.core :as json])
@@ -165,7 +165,8 @@
     {:status (.statusCode response) :body (.body response)}))
 
 (defn book-search
-  "A `books.catalog/BookSearch` over the Google Books volumes endpoint.
+  "A Book search (see `books.catalog`) over the Google Books volumes endpoint:
+  a function of the query map.
 
   * `:api-key` — `GOOGLE_BOOKS_API_KEY`. Absent or blank is not a boot failure:
     every search then answers `:not-configured`, which the page renders.
@@ -173,15 +174,16 @@
     tested against canned bodies without calling Google."
   [{:keys [api-key fetch] :or {fetch http-fetch}}]
   (let [api-key (when (seq (some-> api-key str/trim)) (str/trim api-key))]
-    (reify catalog/BookSearch
-      (search-volumes [_ query]
-        (if-not api-key
-          {:outcome :error :reason :not-configured}
-          (try
-            (let [{:keys [status body]} (fetch (search-url query api-key))]
-              (if-let [reason (failure-reason status)]
-                {:outcome :error :reason reason}
-                (parse-body body)))
-            (catch Exception e
-              (report! e api-key)
-              {:outcome :error :reason :unavailable})))))))
+    (fn [query]
+      (if-not api-key
+        ;; The port owns this value; rebuilding it here would give the contract
+        ;; two owners that could drift apart.
+        (catalog/not-configured query)
+        (try
+          (let [{:keys [status body]} (fetch (search-url query api-key))]
+            (if-let [reason (failure-reason status)]
+              {:outcome :error :reason reason}
+              (parse-body body)))
+          (catch Exception e
+            (report! e api-key)
+            {:outcome :error :reason :unavailable}))))))

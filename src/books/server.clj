@@ -30,8 +30,8 @@
 (defn run
   "The full boot path, and the only place the app is wired: migrate when a
   database is configured, then start the server with that database and the
-  Books port injected into the handler. A failed migration or an unreachable
-  database crashes the boot deliberately — the platform restarts us.
+  Book search port injected into the handler. A failed migration or an
+  unreachable database crashes the boot deliberately — the platform restarts us.
 
   An absent `:books-api-key` deliberately does NOT: the adapter is built
   anyway and every search answers `:not-configured`, which the search page
@@ -44,7 +44,7 @@
   (start http-port
          (handler/make-app (db/datasource database-url)
                            {:db-optional? (boolean db-optional?)
-                            :catalog (google/book-search {:api-key books-api-key})})))
+                            :book-search (google/book-search {:api-key books-api-key})})))
 
 (defn -main [& _args]
   (.join (run {:http-port (port (System/getenv "PORT"))

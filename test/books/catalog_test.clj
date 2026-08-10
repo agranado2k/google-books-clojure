@@ -1,6 +1,7 @@
 (ns books.catalog-test
-  "The Books port itself: query normalization and the implementation used when
-  no catalog is configured. The adapters are tested in their own namespaces."
+  "The Book search port itself: query normalization and the implementation used
+  when no Book search is configured. The adapters are tested in their own
+  namespaces."
   (:require [books.catalog :as catalog]
             [clojure.test :refer [deftest is testing]]))
 
@@ -20,7 +21,7 @@
     (is (false? (catalog/blank-query? {:title "Clojure"})))
     (is (false? (catalog/blank-query? {:author "Hickey"})))))
 
-(deftest not-configured-catalog-answers-an-error-rather-than-throwing
-  (testing "with no catalog wired the search surface degrades, it does not crash"
+(deftest not-configured-book-search-answers-an-error-rather-than-throwing
+  (testing "with no Book search wired the search surface degrades, it does not crash"
     (is (= {:outcome :error :reason :not-configured}
-           (catalog/search-volumes catalog/not-configured {:title "Clojure"})))))
+           (catalog/not-configured {:title "Clojure"})))))

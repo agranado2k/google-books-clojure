@@ -75,7 +75,7 @@
        "\"publishedDate\":\"2018\"}}]}"))
 
 (deftest a-successful-search-maps-every-rendered-field
-  (let [result (catalog/search-volumes (adapter (constantly {:status 200 :body two-volumes}))
+  (let [result ((adapter (constantly {:status 200 :body two-volumes}))
                                        {:title "Clojure"})]
     (is (= :ok (:outcome result)))
     (is (= 2 (count (:volumes result))))
@@ -108,7 +108,7 @@
   (testing "an empty catalog answer is :ok with no volumes — not an error"
     (doseq [body ["{\"kind\":\"books#volumes\",\"totalItems\":0}" "{\"items\":[]}"]]
       (is (= {:outcome :ok :volumes []}
-             (catalog/search-volumes (adapter (constantly {:status 200 :body body}))
+             ((adapter (constantly {:status 200 :body body}))
                                      {:title "zzzzz"}))))))
 
 ;; ---------------------------------------------------------------------------
@@ -118,26 +118,26 @@
 (deftest quota-refusal-is-reported-as-quota
   (testing "HTTP 429 is the catalog rate-limiting us, and the page says so"
     (is (= {:outcome :error :reason :quota}
-           (catalog/search-volumes (adapter (constantly {:status 429 :body "{\"error\":{\"code\":429}}"}))
+           ((adapter (constantly {:status 429 :body "{\"error\":{\"code\":429}}"}))
                                    {:title "Clojure"})))))
 
 (deftest any-other-non-200-is-unavailable
   (doseq [status [400 401 403 500 503]]
     (is (= {:outcome :error :reason :unavailable}
-           (catalog/search-volumes (adapter (constantly {:status status :body "{}"}))
+           ((adapter (constantly {:status status :body "{}"}))
                                    {:title "Clojure"}))
         (str "HTTP " status " must degrade, not throw"))))
 
 (deftest an-unreachable-catalog-is-unavailable
   (testing "a network fault is an outcome the page renders, never an exception"
     (is (= {:outcome :error :reason :unavailable}
-           (catalog/search-volumes (adapter (fn [_] (throw (java.io.IOException. "connect timed out"))))
+           ((adapter (fn [_] (throw (java.io.IOException. "connect timed out"))))
                                    {:title "Clojure"})))))
 
 (deftest an-unparseable-body-is-unavailable
   (testing "a 200 that is not the JSON we asked for is still a failed search"
     (is (= {:outcome :error :reason :unavailable}
-           (catalog/search-volumes (adapter (constantly {:status 200 :body "<html>proxy error</html>"}))
+           ((adapter (constantly {:status 200 :body "<html>proxy error</html>"}))
                                    {:title "Clojure"})))))
 
 (deftest without-a-key-nothing-is-fetched
@@ -145,11 +145,11 @@
     (let [called (atom false)
           adapter (google/book-search {:api-key nil :fetch (fn [_] (reset! called true) nil)})]
       (is (= {:outcome :error :reason :not-configured}
-             (catalog/search-volumes adapter {:title "Clojure"})))
+             (adapter {:title "Clojure"})))
       (is (false? @called) "no key means no call")))
   (testing "a blank key counts as absent"
     (is (= {:outcome :error :reason :not-configured}
-           (catalog/search-volumes (google/book-search {:api-key "   "}) {:title "Clojure"})))))
+           ((google/book-search {:api-key "   "}) {:title "Clojure"})))))
 
 ;; ---------------------------------------------------------------------------
 ;; The default fetch — the one piece the canned bodies cannot exercise.
@@ -190,7 +190,7 @@
       (let [err (java.io.StringWriter.)
             boom (fn [_] (throw (ex-info (str "connect failed: " (google/search-url {:title "x"} api-key)) {})))]
         (binding [*err* err]
-          (catalog/search-volumes (adapter boom) {:title "x"}))
+          ((adapter boom) {:title "x"}))
         (is (not (str/includes? (str err) api-key))
             "the key must never reach a log line")
         (is (pos? (count (str err))) "…but the fault is still reported")))))

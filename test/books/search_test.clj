@@ -1,6 +1,6 @@
 (ns books.search-test
   "The search slice at the handler seam: a Ring request in, a response map out,
-  with the Books port stubbed (`books.stub-catalog`). Nothing here touches
+  with the Book search port stubbed (`books.stub-book-search`). Nothing here touches
   Google, and nothing here needs a database.
 
   `/search` answers the same content two ways on purpose: the whole page for a
@@ -8,23 +8,22 @@
   Both paths are covered, because the plain one is what a reader without
   JavaScript gets."
   (:require [books.assets :as assets]
-            [books.catalog :as catalog]
             [books.handler :as handler]
-            [books.stub-catalog :as stub]
+            [books.stub-book-search :as stub]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 (defn- app
-  "A database-less app with `catalog` as its Books port."
-  [catalog]
-  (handler/make-app nil {:db-optional? true :catalog catalog}))
+  "A database-less app with `book-search` as its Book search port."
+  [book-search]
+  (handler/make-app nil {:db-optional? true :book-search book-search}))
 
 (defn- search
   "GET /search with the given query string. `:htmx? true` sends the header htmx
   sends, which is what asks for the fragment instead of the page."
-  ([catalog query-string] (search catalog query-string {}))
-  ([catalog query-string {:keys [htmx?]}]
-   ((app catalog)
+  ([book-search query-string] (search book-search query-string {}))
+  ([book-search query-string {:keys [htmx?]}]
+   ((app book-search)
     (cond-> {:request-method :get :uri "/search" :query-string query-string}
       htmx? (assoc :headers {"hx-request" "true"})))))
 
@@ -157,14 +156,14 @@
     (is (= "error" (state-of response)))
     (is (str/includes? (body response) "could not be reached"))))
 
-(deftest an-unconfigured-catalog-is-honest-about-why
+(deftest an-unconfigured-book-search-is-honest-about-why
   (testing "no API key: the page says search is not configured, and never why not in detail"
     (let [response (search (stub/failing :not-configured) "title=clojure" {:htmx? true})]
       (is (= 200 (:status response)))
       (is (= "error" (state-of response)))
       (is (str/includes? (body response) "not configured")))))
 
-(deftest an-app-wired-with-no-catalog-at-all-still-serves-the-page
+(deftest an-app-wired-with-no-book-search-at-all-still-serves-the-page
   (testing "the default port is the not-configured one — an absent key cannot crash boot"
     (let [app (handler/make-app nil {:db-optional? true})
           response (app {:request-method :get :uri "/search" :query-string "title=clojure"})]
@@ -209,7 +208,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest search-is-routed-and-nothing-else-became-routed
-  (testing "an unrouted path still 404s, with a catalog wired"
+  (testing "an unrouted path still 404s, with a Book search wired"
     (let [app (app (stub/found []))]
       (is (= 404 (:status (app {:request-method :get :uri "/searchx"}))))
       (is (= 404 (:status (app {:request-method :get :uri "/search/results"}))))))
@@ -224,7 +223,7 @@
 (deftest the-port-is-the-only-thing-the-handler-knows
   (testing "make-app takes the port, exactly like it takes the datasource"
     ;; Guards the seam itself: if the handler ever reached for an adapter
-    ;; directly, this reify — which is not one — would stop satisfying it.
-    (let [port (reify catalog/BookSearch
-                 (search-volumes [_ _] {:outcome :ok :volumes [stub/sparse]}))]
+    ;; directly, this bare function — which is not one — would stop satisfying
+    ;; it.
+    (let [port (fn [_query] {:outcome :ok :volumes [stub/sparse]})]
       (is (str/includes? (body (search port "title=x" {:htmx? true})) "Programming Clojure")))))

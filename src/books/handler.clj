@@ -53,13 +53,13 @@
   Always 200, including for a failed search. htmx does not swap a non-2xx
   response, and the rendered error region IS the answer: the page rendered
   fine; the search did not."
-  [books]
+  [book-search]
   (fn [request]
     (let [query (catalog/query {:title (get-in request [:params "title"])
                                 :author (get-in request [:params "author"])})
           state (if (catalog/blank-query? query)
                   {:outcome :prompt}
-                  (catalog/search-volumes books query))]
+                  (book-search query))]
       (html (if (htmx-request? request)
               (views/search-results state)
               (views/search-page query state))))))
@@ -124,23 +124,24 @@
                 :cache-control script-cache-control}))
 
 (defn make-app
-  "The Ring handler with its dependencies injected: the database, and the Books
-  port the search page is served by. `datasource` is nil when no DATABASE_URL
-  is configured.
+  "The Ring handler with its dependencies injected: the database, and the Book
+  search port the search page is served by. `datasource` is nil when no
+  DATABASE_URL is configured.
 
   Options:
   * `:db-optional?` — treat an absent DATABASE_URL as healthy (default false);
   * `:probe` — the connectivity probe, for tests;
-  * `:catalog` — a `books.catalog/BookSearch`. Defaults to the not-configured
-    one, so an app wired without a catalog renders the search page's error
-    state instead of failing to boot.
+  * `:book-search` — a Book search (see `books.catalog`): a function of the
+    query map. Defaults to the not-configured one, so an app wired without a
+    Book search renders the search page's error state instead of failing to
+    boot.
 
   The connectivity result is cached for `db/check-ttl-ms`: /health is
   unauthenticated, so it must not open a database connection per request."
-  [datasource {:keys [db-optional? probe catalog] :or {db-optional? false}}]
+  [datasource {:keys [db-optional? probe book-search] :or {db-optional? false}}]
   (let [check (db/checker datasource (cond-> {} probe (assoc :probe probe)))
         health-handler (health check db-optional?)
-        search-handler (search (or catalog catalog/not-configured))]
+        search-handler (search (or book-search catalog/not-configured))]
     (ring/ring-handler
      (ring/router
       [["/" {:get landing :head landing}]

@@ -1,22 +1,24 @@
-(ns books.stub-catalog
-  "The test double for the Books port (`books.catalog/BookSearch`) — the second
-  implementation the port exists for. Handler tests drive every state of the
-  search page through this: results, no matches, and each way a search fails.
+(ns books.stub-book-search
+  "The test doubles for the **Book search** port (see `books.catalog`) — the
+  second implementation the port exists for. Handler tests drive every state of
+  the search page through these: results, no matches, and each way a search
+  fails.
+
+  The port is a plain function of the query map, so a double is a closure
+  rather than a `reify` — which is most of why the port is a function.
 
   Not a test namespace: the name deliberately does not end in `-test`, so the
-  runner loads it only as a dependency of the namespaces that require it."
-  (:require [books.catalog :as catalog]))
+  runner loads it only as a dependency of the namespaces that require it.")
 
 (defn answering
-  "A `BookSearch` that answers `result` for every query. When `seen` (an atom)
+  "A Book search that answers `result` for every query. When `seen` (an atom)
   is given, each query it is asked is conj'd onto it, so a test can assert what
   the handler actually sent to the port."
   ([result] (answering result nil))
   ([result seen]
-   (reify catalog/BookSearch
-     (search-volumes [_ query]
-       (when seen (swap! seen conj query))
-       result))))
+   (fn [query]
+     (when seen (swap! seen conj query))
+     result)))
 
 (defn found
   "A successful search answering `volumes`."
@@ -38,5 +40,5 @@
    :thumbnail "https://books.example.test/cover.jpg"})
 
 (def sparse
-  "A Volume the catalog described sparsely — no cover, no date, no blurb."
+  "A Volume the Catalog described sparsely — no cover, no date, no blurb."
   {:id "CVBhtQAACAAJ" :title "Programming Clojure" :authors ["Alex Miller"]})
