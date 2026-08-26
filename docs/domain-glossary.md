@@ -59,11 +59,17 @@ page of explanation, that page is an ADR and the entry points at it.
   Not ours, not persisted, and reachable only through the Book search port —
   so "the Catalog is unavailable" is a state the UI renders, never an exception
   that escapes a handler. Ref: `books.catalog`.
-- **Book search** — the port the app searches the Catalog through: the
-  `books.catalog/BookSearch` protocol, whose one operation is
-  `search-volumes`. Port. Its real adapter is `books.google-books`; tests
-  inject a stub. The handler depends on this and never on an adapter.
-  Ref: `books.catalog`, ADR-0001 (the handler is the test seam).
+- **Book search** — the port the app searches the Catalog through: a **plain
+  function of one argument**, the normalized query map, answering an outcome map
+  and never throwing. Port. Its real adapter is `books.google-books/book-search`;
+  the default is `books.catalog/not-configured`; tests inject a closure
+  (`books.stub-book-search`). The handler depends on this contract and never on
+  an adapter — it is injected as `make-app`'s `:book-search` option.
+  Ref: `books.catalog` (the docstring carries the contract), ADR-0001 (the
+  handler is the test seam).
+  - _Avoid_: **Books port** — the same thing under a plural that reads like the
+    banned **Book**, and under a shape (a protocol named `BookSearch`, with a
+    `search-volumes` operation) the port has not had since it became a function.
 
 ---
 

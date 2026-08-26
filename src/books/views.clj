@@ -255,8 +255,9 @@
      [:p {:class "mt-2 text-sm text-stone-600"} detail]]))
 
 (defn- results-region
-  "The swappable region. `state` is a `books.catalog/search-volumes` result, or
-  `{:outcome :prompt}` when there was nothing to search for."
+  "The swappable region. `state` is what a **Book search** answered (see
+  `books.catalog` for the contract), or `{:outcome :prompt}` when there was
+  nothing to search for."
   [{:keys [outcome reason volumes]}]
   (let [[data-state content]
         (case outcome
