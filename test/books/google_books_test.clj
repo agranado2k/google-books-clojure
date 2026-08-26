@@ -275,12 +275,20 @@
   ;; as the timeouts are — and it was the one that was missing: a hostile or
   ;; misbehaving upstream could answer a gigabyte and drive heap growth on a
   ;; request thread. `BodySubscribers.limiting` bounds it.
-  (serving (fn [_] (filler (inc google/max-body-bytes)))
+  ;;
+  ;; The oversized body is VALID JSON, one byte past the ceiling, and that is
+  ;; load-bearing rather than tidiness: with non-JSON filler the second
+  ;; assertion below passed even with the bound removed, because an unbounded
+  ;; read of filler fails to parse and lands on :unavailable anyway — it could
+  ;; not fail for the reason its comment gave. With a body that would parse,
+  ;; removing `limiting` makes BOTH assertions fail, which is what makes them
+  ;; assertions about the bound.
+  (serving (fn [_] (json-of-size (inc google/max-body-bytes)))
            (fn [url]
              (testing "the overrun is refused, not buffered"
                (is (thrown? java.io.IOException (google/http-fetch url api-key))))
              (testing "and it reaches the reader as an outcome, never an escaped exception"
-               ;; The fetch is the real one; only the URL is local. A truncated
+               ;; The fetch is the real one; only the URL is local. An oversized
                ;; body that PARSED would be the quiet failure this guards
                ;; against, so :unavailable is the only acceptable answer.
                (let [errors (java.io.StringWriter.)
