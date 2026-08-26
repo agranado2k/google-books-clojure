@@ -172,11 +172,12 @@ answers in letter. **This extends clauses 4, 5 and 6; it reverses nothing.**
    so must be verified with `ADD --checksum`; htmx is *content we serve*, so
    committing it is strictly stronger — the bytes are a reviewable diff, the
    build needs no network for them, and the bytes the suite exercises are the
-   bytes a container serves. The version and SHA-256 live in `books.assets`,
-   `test/books/assets_test.clj` re-hashes the committed file on **every test
-   run** (local and CI), and `scripts/vendor-htmx.sh` is the only sanctioned
-   way to fetch or re-verify it — it refuses to run if its own pins and
-   `books.assets` disagree. The digest was established from the npm registry
+   bytes a container serves. The version and SHA-256 live in `books.assets` and
+   **only** there, `test/books/assets_test.clj` re-hashes the committed file
+   against that pin on **every test run** (local and CI), and
+   `scripts/vendor-htmx.sh` is the only sanctioned way to fetch it — it reads
+   both pins out of `books.assets` rather than carrying a second copy that
+   could drift. The digest was established from the npm registry
    tarball for the release, whose own `integrity` hash was checked, and
    cross-checked against the CDN copy of that release.
 3. **The static surface becomes exactly two named roots, not one wide one.**

@@ -40,7 +40,8 @@ loaded from a CDN: the release is committed at
 `resources/public/js/htmx-<version>.min.js`, its version and SHA-256 are pinned
 in `src/books/assets.clj`, and the test suite re-hashes the committed bytes on
 every run. Nothing needs to be built or fetched for it —
-`scripts/vendor-htmx.sh` exists only to bump or re-verify it.
+`scripts/vendor-htmx.sh` exists only to bump it, and reads both pins out of
+`src/books/assets.clj` so there is one copy of each.
 
 ## Running it
 

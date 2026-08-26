@@ -1,8 +1,7 @@
 #!/bin/sh
-# vendor-htmx.sh — fetch or verify the vendored htmx release.
+# vendor-htmx.sh — fetch the pinned htmx release into resources/public/js/.
 #
-# Usage:  scripts/vendor-htmx.sh            fetch the pinned release and verify it
-#         scripts/vendor-htmx.sh --verify   verify what is already committed
+# Usage:  scripts/vendor-htmx.sh
 #
 # WHY THE FILE IS COMMITTED. ADR-0004 rejected a CDN for CSS; a third-party
 # <script> is the same bet with a bigger payout for whoever wins it, so htmx is
@@ -11,14 +10,11 @@
 # it, the same bytes are exercised by the test suite that a container serves,
 # and any change to them is a reviewable diff.
 #
-# WHAT VERIFIES IT. Three places hold the same two facts — the version and the
-# digest — and none of them can drift silently:
-#
-#   * this script (the fetch, and `--verify`);
-#   * src/books/assets.clj (what the app serves and what the page links);
-#   * test/books/assets_test.clj, which hashes the committed bytes on EVERY
-#     test run, locally and in CI. That test is the real gate; this script
-#     checks itself against assets.clj so a bump cannot update only one of them.
+# WHERE THE PINS LIVE. src/books/assets.clj, and nowhere else. It is what the
+# app serves and what the page links, so it is the only copy that can be right;
+# this script READS it rather than repeating it. `books.assets-test` re-hashes
+# the committed bytes against that same pin on every test run, locally and in
+# CI, which is the standing gate — this script is only the fetch.
 #
 # The digest was established from the npm registry tarball for this release —
 # whose own `integrity` hash was checked — and cross-checked against the CDN
@@ -27,31 +23,47 @@
 # LICENCE: htmx is Zero-Clause BSD (0BSD), which imposes no condition on
 # redistribution. Vendoring it is a supply-chain decision, not a licence one.
 #
-# BUMPING: change HTMX_VERSION here, run the script, then update
-# `htmx-version` and `htmx-sha256` in src/books/assets.clj to match what it
-# reports. The suite fails until they agree.
+# BUMPING: edit `htmx-version` and `htmx-sha256` in src/books/assets.clj, run
+# this script, and commit the new file alongside the deleted old one. The suite
+# fails until the bytes and the pin agree.
 set -eu
 cd "$(dirname "$0")/.."
 
-HTMX_VERSION=2.0.10
-HTMX_SHA256=71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de
-
 pins="src/books/assets.clj"
+
+# The value of a `(def <name> "<docstring>" "<value>")` in assets.clj: take the
+# def's own s-expression (up to the first line that closes it) and read the line
+# that is nothing but a string and a closing paren. Deliberately strict — a
+# reformat that breaks this yields an EMPTY pin, which the checks below reject
+# loudly rather than fetching something nobody pinned.
+pin_of() {
+	sed -n "/^(def $1\$/,/)\$/p" "$pins" |
+		sed -n 's/^[[:space:]]*"\(.*\)")[[:space:]]*$/\1/p' | head -1
+}
+
+HTMX_VERSION=$(pin_of htmx-version)
+HTMX_SHA256=$(pin_of htmx-sha256)
+
+case "$HTMX_VERSION" in
+[0-9]*.[0-9]*.[0-9]*) ;;
+*)
+	echo "vendor-htmx.sh: could not read htmx-version from ${pins}." >&2
+	echo "  found: '${HTMX_VERSION}' — is the def still one string on its own line?" >&2
+	exit 3
+	;;
+esac
+
+case "$HTMX_SHA256" in
+????????????????????????????????????????????????????????????????) ;;
+*)
+	echo "vendor-htmx.sh: could not read a 64-character htmx-sha256 from ${pins}." >&2
+	echo "  found: '${HTMX_SHA256}'" >&2
+	exit 3
+	;;
+esac
+
 target="resources/public/js/htmx-${HTMX_VERSION}.min.js"
 url="https://unpkg.com/htmx.org@${HTMX_VERSION}/dist/htmx.min.js"
-
-# The pins in assets.clj are what the app actually serves; a bump that edits
-# only this script would otherwise pass unnoticed until the suite ran.
-grep -q "\"${HTMX_VERSION}\"" "$pins" || {
-	echo "vendor-htmx.sh: ${pins} does not pin htmx ${HTMX_VERSION}." >&2
-	echo "  Update htmx-version there, or fix HTMX_VERSION here." >&2
-	exit 3
-}
-grep -q "${HTMX_SHA256}" "$pins" || {
-	echo "vendor-htmx.sh: ${pins} does not pin digest ${HTMX_SHA256}." >&2
-	echo "  Update htmx-sha256 there, or fix HTMX_SHA256 here." >&2
-	exit 3
-}
 
 # sha256sum (GNU/Linux) or shasum -a 256 (macOS) — whichever this host has.
 digest_of() {
@@ -62,34 +74,19 @@ digest_of() {
 	fi
 }
 
-if [ "${1:-}" = "--verify" ]; then
-	[ -f "$target" ] || {
-		echo "vendor-htmx.sh: $target is missing — run scripts/vendor-htmx.sh" >&2
-		exit 1
-	}
-else
-	mkdir -p "$(dirname "$target")"
-	tmp="${target}.tmp"
-	trap 'rm -f "$tmp"' EXIT INT TERM HUP
-	curl -fsSL -o "$tmp" "$url"
-	found=$(digest_of "$tmp")
-	if [ "$found" != "$HTMX_SHA256" ]; then
-		echo "vendor-htmx.sh: digest mismatch — REFUSING to vendor this download." >&2
-		echo "  expected: $HTMX_SHA256" >&2
-		echo "  found:    $found" >&2
-		echo "  url:      $url" >&2
-		exit 4
-	fi
-	mv "$tmp" "$target"
-	trap - EXIT INT TERM HUP
-fi
-
-found=$(digest_of "$target")
+mkdir -p "$(dirname "$target")"
+tmp="${target}.tmp"
+trap 'rm -f "$tmp"' EXIT INT TERM HUP
+curl -fsSL -o "$tmp" "$url"
+found=$(digest_of "$tmp")
 if [ "$found" != "$HTMX_SHA256" ]; then
-	echo "vendor-htmx.sh: $target does not match its pin." >&2
-	echo "  expected: $HTMX_SHA256" >&2
+	echo "vendor-htmx.sh: digest mismatch — REFUSING to vendor this download." >&2
+	echo "  expected: $HTMX_SHA256  (${pins})" >&2
 	echo "  found:    $found" >&2
+	echo "  url:      $url" >&2
 	exit 4
 fi
+mv "$tmp" "$target"
+trap - EXIT INT TERM HUP
 
 echo "vendor-htmx.sh: OK — $target is htmx ${HTMX_VERSION} (sha256 ${HTMX_SHA256})."

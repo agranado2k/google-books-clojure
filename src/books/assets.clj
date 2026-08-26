@@ -6,15 +6,16 @@
   the same bet with a bigger payout for whoever wins it. So the release is
   **committed to this repo**, version-pinned, and verified by digest: the pin
   below is the contract, and `books.assets-test` proves the committed bytes
-  still satisfy it on every test run. `scripts/vendor-htmx.sh` is the only
-  sanctioned way to change any of this.
+  still satisfy it on every test run. The two pins below are the ONLY copy of
+  those facts — `scripts/vendor-htmx.sh`, the only sanctioned way to fetch the
+  release, reads them out of this file — so a bump is one edit, here.
 
   The URL carries the version, which is what allows the immutable cache policy
   in `books.handler` — see the 2026-08-10 amendment to ADR-0004.")
 
 (def htmx-version
-  "The pinned htmx release. `scripts/vendor-htmx.sh` carries the same value and
-  refuses to run when the two disagree."
+  "The pinned htmx release. The ONE copy of it: `scripts/vendor-htmx.sh` reads
+  this def rather than carrying its own, so a bump is one edit here."
   "2.0.10")
 
 (def htmx-sha256
