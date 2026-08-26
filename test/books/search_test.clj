@@ -368,10 +368,12 @@
     (let [rendered (body ((app (stub/found [])) {:request-method :get :uri "/"}))]
       (is (re-find #"<h3[^>]*><a[^>]*href=\"/search\"[^>]*>Search</a></h3>" rendered)))))
 
-(deftest the-port-is-the-only-thing-the-handler-knows
-  (testing "make-app takes the port, exactly like it takes the datasource"
-    ;; Guards the seam itself: if the handler ever reached for an adapter
-    ;; directly, this bare function — which is not one — would stop satisfying
-    ;; it.
-    (let [port (fn [_query] {:outcome :ok :volumes [stub/sparse]})]
-      (is (str/includes? (body (search port "title=x" {:htmx? true})) "Programming Clojure")))))
+;; `the-port-is-the-only-thing-the-handler-knows` stood here. It passed a bare
+;; `fn` as the port and asserted the results rendered, on the stated grounds
+;; that a bare function "is not an adapter" and so proved the handler reached
+;; for no adapter of its own. That distinction died with the protocol: since the
+;; port became a plain function, `books.stub-book-search/found` returns a
+;; closure too, so every test above already hands `make-app` exactly the same
+;; kind of thing — `a-search-by-title-renders-the-volumes-it-found` most
+;; directly. The test could no longer fail for the reason it named, and nothing
+;; else failed with it.
