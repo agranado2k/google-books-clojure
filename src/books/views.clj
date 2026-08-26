@@ -38,6 +38,19 @@
   "The smaller caps label at the foot of a roadmap card."
   "text-xs font-medium uppercase tracking-wide")
 
+(def ^:private card
+  "The raised-panel chrome: a roadmap card, the search form, and a Volume card
+  are all the same object at different sizes. Padding is NOT here — it is the
+  one part that legitimately differs per use — so a use composes it through
+  `classes`."
+  "rounded-2xl border border-stone-200 bg-white shadow-sm")
+
+(def ^:private underline-link
+  "An inline link that reads as one: underlined, in a colour quiet enough not to
+  compete with the text. The hover colour is per use, because it belongs to the
+  surrounding band rather than to the link."
+  "underline decoration-stone-300 underline-offset-4")
+
 ;; ---------------------------------------------------------------------------
 ;; The roadmap: content as data, rendered by one function.
 ;; ---------------------------------------------------------------------------
@@ -63,10 +76,10 @@
 
 (defn- roadmap-card [{:keys [title blurb status href]}]
   (let [{:keys [label] status-class :class} (statuses status)]
-    [:div {:class "rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"}
+    [:div {:class (classes card "p-6")}
      [:h3 {:class "font-serif text-xl text-stone-900"}
       (if href
-        [:a {:href href :class "underline decoration-stone-300 underline-offset-4 hover:text-amber-700"}
+        [:a {:href href :class (classes underline-link "hover:text-amber-700")}
          title]
         title)]
      [:p {:class "mt-2 text-sm leading-relaxed text-stone-600"} blurb]
@@ -85,7 +98,7 @@
      brand]
     [:nav {:class "flex items-center gap-4"}
      [:a {:href "/search"
-          :class "text-sm font-medium text-stone-600 underline decoration-stone-300 underline-offset-4 hover:text-stone-900"}
+          :class (classes "text-sm font-medium text-stone-600" underline-link "hover:text-stone-900")}
       "Search"]
      [:span {:class "hidden rounded-full border border-stone-300 px-3 py-1 text-xs font-medium text-stone-500 sm:inline"}
       "Sign-in coming soon"]]]])
@@ -94,7 +107,7 @@
   [:footer {:class "border-t border-stone-200"}
    [:div {:class (classes container "flex flex-col gap-2 py-8 text-sm text-stone-500 sm:flex-row sm:items-center sm:justify-between")}
     [:p "Built with Clojure. Data from the Google Books API."]
-    [:p [:a {:href "/health" :class "underline decoration-stone-300 underline-offset-4 hover:text-stone-700"}
+    [:p [:a {:href "/health" :class (classes underline-link "hover:text-stone-700")}
          "Service status"]]]])
 
 (defn layout
@@ -168,7 +181,7 @@
   "The form, refilled with what was searched for so a full-page result (no
   JavaScript, or a shared URL) shows the query it answers."
   [{:keys [title author]}]
-  [:form {:class "rounded-2xl border border-stone-200 bg-white p-6 shadow-sm"
+  [:form {:class (classes card "p-6")
           ;; Progressive enhancement: `method`/`action` make this an ordinary
           ;; GET form, and the hx-* attributes upgrade it to a fragment swap
           ;; when htmx is running. The endpoint is the same either way.
@@ -211,7 +224,7 @@
   "One Volume. Every string here comes from the catalog and is therefore
   escaped by hiccup2 — no `h/raw`, ever."
   [{:keys [title authors published-date description thumbnail]}]
-  [:li {:class "flex gap-4 rounded-2xl border border-stone-200 bg-white p-5 shadow-sm"}
+  [:li {:class (classes "flex gap-4" card "p-5")}
    [:div {:class "hidden w-16 shrink-0 sm:block"}
     (if thumbnail
       [:img {:src thumbnail :alt "" :loading "lazy"
