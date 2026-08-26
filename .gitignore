@@ -11,8 +11,11 @@ resources/public/css/
 # Local environment files — they hold real credentials (GOOGLE_BOOKS_API_KEY,
 # DATABASE_URL). Ignored in the repo rather than in .git/info/exclude, because a
 # local exclude protects one clone and does not travel with the repository.
+# `.envrc` is direnv's file and is the other common holder of an
+# `export GOOGLE_BOOKS_API_KEY=…`; it does not match `.env.*`.
 .env
 .env.*
+.envrc
 
 # Editor/REPL litter
 .nrepl-port
