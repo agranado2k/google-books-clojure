@@ -121,6 +121,34 @@
     (testing "a sparsely described Volume still renders, without empty furniture"
       (is (str/includes? (body response) "Programming Clojure")))))
 
+(deftest a-volume-the-catalog-barely-described-still-renders-a-card
+  ;; The two fallbacks on the card — "Untitled" and "Author unknown" — read like
+  ;; defensive dead code and are not: the adapter omits `:title` and `:authors`
+  ;; whenever the catalog omits them (see `books.stub-book-search/nameless`), so
+  ;; both are states a real search reaches, and neither was covered.
+  (let [rendered (body (search (stub/found [stub/nameless]) "title=x" {:htmx? true}))]
+    (testing "a Volume with no title is still a card, under a stand-in name"
+      (is (str/includes? rendered "Untitled")))
+    (testing "…and so is one the catalog credits to nobody"
+      (is (str/includes? rendered "Author unknown")))
+    (testing "the fields it DOES have are still shown"
+      (is (str/includes? rendered "1911")))))
+
+(deftest the-form-replaces-the-results-region-rather-than-filling-it
+  ;; hx-swap="outerHTML", and it is load-bearing: the fragment `/search` answers
+  ;; is itself a `<div id="results">`. htmx's DEFAULT swap is innerHTML, which
+  ;; would put that div INSIDE the existing one — a second #results nested in
+  ;; the first. Every later swap then resolves `#results` to the outer element
+  ;; and nests again, so the page degrades silently rather than breaking, which
+  ;; is why losing this attribute needs an assertion of its own.
+  (let [rendered (body (search (stub/found []) nil))]
+    (is (str/includes? rendered "hx-swap=\"outerHTML\""))
+    (is (str/includes? rendered "hx-target=\"#results\"")))
+  (testing "…and what comes back really is a whole #results element to swap FOR"
+    (let [fragment (body (search (stub/found [stub/sparse]) "title=x" {:htmx? true}))]
+      (is (str/starts-with? fragment "<div"))
+      (is (str/includes? fragment "id=\"results\"")))))
+
 (deftest a-paragraph-long-description-is-rendered-whole-and-clamped-in-css
   ;; The card used to cut the blurb in Clojure: count 240 characters, backtrack
   ;; to a space, append an ellipsis. That clamps by BYTES, which is not the

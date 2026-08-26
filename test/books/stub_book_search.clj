@@ -43,6 +43,14 @@
   "A Volume the Catalog described sparsely — no cover, no date, no blurb."
   {:id "CVBhtQAACAAJ" :title "Programming Clojure" :authors ["Alex Miller"]})
 
+(def nameless
+  "A Volume the Catalog named neither the title nor the authors of. Not a
+  contrived shape: `books.google-books/volume` builds the map with `cond->` and
+  omits an optional field the catalog omitted rather than writing a nil-valued
+  key, so this is exactly what reaches the card when a catalog entry is that
+  thin. It is what makes the card's two fallbacks reachable states."
+  {:id "kQ7fAAAAMAAJ" :published-date "1911"})
+
 (def long-blurb-description
   "A description the length a real catalog blurb actually runs to. Deliberately
   plain ASCII with no markup and **no apostrophes** — hiccup2 escapes those, and
