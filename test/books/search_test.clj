@@ -121,6 +121,29 @@
     (testing "a sparsely described Volume still renders, without empty furniture"
       (is (str/includes? (body response) "Programming Clojure")))))
 
+(deftest a-paragraph-long-description-is-rendered-whole-and-clamped-in-css
+  ;; The card used to cut the blurb in Clojure: count 240 characters, backtrack
+  ;; to a space, append an ellipsis. That clamps by BYTES, which is not the
+  ;; thing a card is short of — it is short of LINES, at a width that changes
+  ;; with the viewport — and it cuts inside a grapheme cluster given the wrong
+  ;; input. `line-clamp-3` moves the decision to the browser, which knows both.
+  ;;
+  ;; Until this test there was no fixture longer than about sixty characters,
+  ;; so the whole truncation path was uncovered while it existed.
+  (let [rendered (body (search (stub/found [stub/long-blurb]) "title=x" {:htmx? true}))]
+    (is (< 600 (count stub/long-blurb-description))
+        "precondition: the fixture is a real blurb's length, not a phrase")
+    (testing "every character of the blurb is in the document"
+      (is (str/includes? rendered stub/long-blurb-description)))
+    (testing "and the element holding it is the one carrying the clamp"
+      ;; Tied to the description paragraph specifically: a clamp somewhere else
+      ;; on the card would leave the blurb unbounded and this green.
+      (is (re-find (re-pattern (str "<p class=\"[^\"]*line-clamp-3[^\"]*\">"
+                                    "A publisher blurb"))
+                   rendered)))
+    (testing "nothing is cut short with an ellipsis of our own"
+      (is (not (str/includes? rendered "…"))))))
+
 (deftest a-search-by-author-and-by-both-reaches-the-port-intact
   (testing "author only"
     (let [seen (atom [])]

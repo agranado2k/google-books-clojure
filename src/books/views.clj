@@ -195,21 +195,17 @@
      [:span {:class "h-2 w-2 animate-pulse rounded-full bg-amber-600" :aria-hidden "true"}]
      "Searching the catalog…"]]])
 
-(def ^:private description-limit
-  "How much of a Volume's description the card shows. The catalog's own blurbs
-  run to several paragraphs; a card shows a taste of one."
-  240)
+(def ^:private description-clamp
+  "How much of a Volume's description the card shows: three rendered LINES.
 
-(defn- short-description
-  "`description` cut to `description-limit`, at a word boundary, with an
-  ellipsis when anything was dropped."
-  [description]
-  (when (seq description)
-    (if (<= (count description) description-limit)
-      description
-      (let [cut (subs description 0 description-limit)
-            boundary (str/last-index-of cut " ")]
-        (str (str/trimr (if boundary (subs cut 0 boundary) cut)) "…")))))
+  The catalog's blurbs run to paragraphs and a card shows a taste of one — but
+  the card is short of lines, not of bytes, and how many characters fit on a
+  line is a fact about the viewport, the font and the card's width that only
+  the browser has. This used to be a substring cut at 240 characters with a
+  backtrack to the nearest space and an appended ellipsis: it guessed at all
+  three, and it could cut inside a grapheme cluster. `line-clamp-3` (Tailwind
+  core since v3.3) does it where the facts are, ellipsis included."
+  "line-clamp-3")
 
 (defn- volume-card
   "One Volume. Every string here comes from the catalog and is therefore
@@ -227,8 +223,9 @@
     [:p {:class "mt-1 text-sm text-stone-600"}
      (if (seq authors) (str/join ", " authors) "Author unknown")
      (when published-date [:span {:class "text-stone-400"} " · " published-date])]
-    (when-let [blurb (short-description description)]
-      [:p {:class "mt-2 text-sm leading-relaxed text-stone-600"} blurb])]])
+    (when (seq description)
+      [:p {:class (classes "mt-2 text-sm leading-relaxed text-stone-600" description-clamp)}
+       description])]])
 
 (def ^:private notices
   "What the reader is told when the region is not a list of Volumes. The three

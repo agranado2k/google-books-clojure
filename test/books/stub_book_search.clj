@@ -42,3 +42,27 @@
 (def sparse
   "A Volume the Catalog described sparsely — no cover, no date, no blurb."
   {:id "CVBhtQAACAAJ" :title "Programming Clojure" :authors ["Alex Miller"]})
+
+(def long-blurb-description
+  "A description the length a real catalog blurb actually runs to. Deliberately
+  plain ASCII with no markup and **no apostrophes** — hiccup2 escapes those, and
+  this fixture exists so a test can compare the rendered text to it directly,
+  which only works while the two are identical. Escaping has its own tests."
+  (str "A publisher blurb does not stop at a sentence. It introduces the "
+       "premise, then the setting, then the protagonist, then the reversal "
+       "that the marketing copy insists you will not see coming, and it keeps "
+       "going for as long as the catalog entry allows it to. This one runs "
+       "well past six hundred characters, which is ordinary for the Google "
+       "Books catalog and far past anything a card can show, so it is exactly "
+       "the input the clamp on that card exists for. Every character of it is "
+       "in the document; how much of it a reader sees is the browser decision, "
+       "taken from the rendered line count at the real width of the card."))
+
+(def long-blurb
+  "A Volume the Catalog described at length — the ordinary case, and the one no
+  other fixture here covers."
+  {:id "Nq9dEAAAQBAJ"
+   :title "The Long Description"
+   :authors ["A Verbose Publisher"]
+   :published-date "2024"
+   :description long-blurb-description})
