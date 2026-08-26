@@ -121,18 +121,28 @@
     (testing "a sparsely described Volume still renders, without empty furniture"
       (is (str/includes? (body response) "Programming Clojure")))))
 
-(deftest a-volume-the-catalog-barely-described-still-renders-a-card
-  ;; The two fallbacks on the card — "Untitled" and "Author unknown" — read like
-  ;; defensive dead code and are not: the adapter omits `:title` and `:authors`
-  ;; whenever the catalog omits them (see `books.stub-book-search/nameless`), so
-  ;; both are states a real search reaches, and neither was covered.
-  (let [rendered (body (search (stub/found [stub/nameless]) "title=x" {:htmx? true}))]
-    (testing "a Volume with no title is still a card, under a stand-in name"
-      (is (str/includes? rendered "Untitled")))
-    (testing "…and so is one the catalog credits to nobody"
-      (is (str/includes? rendered "Author unknown")))
-    (testing "the fields it DOES have are still shown"
-      (is (str/includes? rendered "1911")))))
+;; The two fallbacks on the card — "Untitled" and "Author unknown" — read like
+;; defensive dead code and are not: the adapter omits `:title` and `:authors`
+;; whenever the catalog omits them (see `books.stub-book-search/nameless`), so
+;; both are states a real search reaches. One deftest each: they are two
+;; independent fallbacks, and a single test that lost one of them would still
+;; report the other's name.
+
+(defn- barely-described
+  "The rendered fragment for a Volume the catalog described as thinly as it
+  ever does."
+  []
+  (body (search (stub/found [stub/nameless]) "title=x" {:htmx? true})))
+
+(deftest a-volume-with-no-title-renders-under-a-stand-in-name
+  (is (str/includes? (barely-described) "Untitled")))
+
+(deftest a-volume-the-catalog-credits-to-nobody-renders-under-a-stand-in-author
+  (is (str/includes? (barely-described) "Author unknown")))
+
+(deftest a-barely-described-volume-still-shows-the-fields-it-does-have
+  (testing "the fallbacks stand in for what is missing; they do not replace the card"
+    (is (str/includes? (barely-described) "1911"))))
 
 (deftest the-form-replaces-the-results-region-rather-than-filling-it
   ;; hx-swap="outerHTML", and it is load-bearing: the fragment `/search` answers
@@ -143,11 +153,16 @@
   ;; is why losing this attribute needs an assertion of its own.
   (let [rendered (body (search (stub/found []) nil))]
     (is (str/includes? rendered "hx-swap=\"outerHTML\""))
-    (is (str/includes? rendered "hx-target=\"#results\"")))
-  (testing "…and what comes back really is a whole #results element to swap FOR"
-    (let [fragment (body (search (stub/found [stub/sparse]) "title=x" {:htmx? true}))]
-      (is (str/starts-with? fragment "<div"))
-      (is (str/includes? fragment "id=\"results\"")))))
+    (is (str/includes? rendered "hx-target=\"#results\""))))
+
+(deftest the-fragment-is-a-whole-results-element-to-swap-for
+  ;; The other half of that coupling, and a separate behavior: the attribute
+  ;; above says REPLACE #results, and this says the answer is a #results to
+  ;; replace it WITH. Either one alone is half a contract, and a deftest holding
+  ;; both would report the form's name when it was the fragment that changed.
+  (let [fragment (body (search (stub/found [stub/sparse]) "title=x" {:htmx? true}))]
+    (is (str/starts-with? fragment "<div"))
+    (is (str/includes? fragment "id=\"results\""))))
 
 (deftest a-paragraph-long-description-is-rendered-whole-and-clamped-in-css
   ;; The card used to cut the blurb in Clojure: count 240 characters, backtrack
@@ -196,27 +211,38 @@
       (is (not (str/includes? rendered "<html")))
       (is (not (str/includes? rendered "<header"))))))
 
+;; Regression: htmx 2.0.10 restores a history entry by REPLAYING it as an
+;; hx-request — it sends `HX-Request: true` AND `HX-History-Restore-Request:
+;; true`, then swaps the answer into document.body with innerHTML. Answering the
+;; fragment therefore replaced the whole page with the bare results region:
+;; pressing Back after a search destroyed the page.
+;;
+;; Three deftests, because the rule and its two boundaries fail independently:
+;; the rule can stop firing, and it can start firing where it should not.
+
+(defn- restoring
+  "GET /search as htmx replays a history entry, with the restore header set to
+  `value`."
+  [value]
+  (body (search (stub/found [stub/sparse]) "title=clojure"
+                {:htmx? true :headers {"hx-history-restore-request" value}})))
+
 (deftest a-history-restore-answers-the-whole-page-even-though-htmx-asked
-  ;; Regression: htmx 2.0.10 restores a history entry by REPLAYING it as an
-  ;; hx-request — it sends `HX-Request: true` AND `HX-History-Restore-Request:
-  ;; true`, then swaps the answer into document.body with innerHTML. Answering
-  ;; the fragment therefore replaced the whole page with the bare results
-  ;; region: pressing Back after a search destroyed the page.
   (testing "both headers together: the full document, so Back restores a page"
-    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure"
-                                 {:htmx? true
-                                  :headers {"hx-history-restore-request" "true"}}))]
+    (let [rendered (restoring "true")]
       (is (str/includes? rendered "<html"))
       (is (str/includes? rendered "<header"))
-      (is (str/includes? rendered "Programming Clojure"))))
-  (testing "hx-request alone is still the fragment — the ordinary search swap"
-    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure" {:htmx? true}))]
-      (is (not (str/includes? rendered "<html")))))
-  (testing "a restore header htmx did not set to \"true\" does not disable the fragment"
-    (let [rendered (body (search (stub/found [stub/sparse]) "title=clojure"
-                                 {:htmx? true
-                                  :headers {"hx-history-restore-request" "false"}}))]
-      (is (not (str/includes? rendered "<html"))))))
+      (is (str/includes? rendered "Programming Clojure")))))
+
+(deftest hx-request-without-a-restore-header-is-still-the-fragment
+  (testing "the ordinary search swap must not be widened by the restore rule"
+    (is (not (str/includes? (body (search (stub/found [stub/sparse]) "title=clojure"
+                                          {:htmx? true}))
+                            "<html")))))
+
+(deftest a-restore-header-htmx-did-not-set-to-true-is-still-the-fragment
+  (testing "the rule keys on the value htmx sends, not on the header being present"
+    (is (not (str/includes? (restoring "false") "<html")))))
 
 (deftest a-plain-search-answers-the-whole-page-with-its-results
   (testing "without htmx the same URL still works — form GET, full page back"
