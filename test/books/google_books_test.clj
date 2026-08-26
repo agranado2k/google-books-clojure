@@ -7,7 +7,8 @@
             [books.google-books :as google]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [ring.adapter.jetty :as jetty]))
+            [ring.adapter.jetty :as jetty])
+  (:import (java.nio.charset StandardCharsets)))
 
 (def ^:private api-key "test-key-not-a-real-one")
 
@@ -209,6 +210,68 @@
       (testing "a refusal is reported by status, not by throwing"
         (is (= 429 (:status (google/http-fetch (str base "/refused") api-key)))))
       (finally (.stop jetty)))))
+
+(defn- filler
+  "`n` bytes of harmless ASCII, as a string — a body of a given SIZE, when the
+  size is the only thing under test."
+  [n]
+  (String. (byte-array n (byte (int \x))) StandardCharsets/UTF_8))
+
+(defn- json-of-size
+  "A well-formed volumes body of exactly `n` bytes, padded out in the one field
+  a real oversized response would grow in: the description."
+  [n]
+  (let [prefix "{\"items\":[{\"id\":\"a\",\"volumeInfo\":{\"description\":\""
+        suffix "\"}}]}"]
+    (str prefix (filler (- n (count prefix) (count suffix))) suffix)))
+
+(defn- serving
+  "Run a local Jetty answering `body-for` (a function of the Ring request), and
+  call `f` with its base URL. Never Google."
+  [body-for f]
+  (let [jetty (jetty/run-jetty
+               (fn [request]
+                 {:status 200
+                  :headers {"Content-Type" "application/json"}
+                  :body (body-for request)})
+               {:host "127.0.0.1" :port 0 :join? false})]
+    (try
+      (f (str "http://127.0.0.1:" (.getLocalPort (aget (.getConnectors jetty) 0)) "/v"))
+      (finally (.stop jetty)))))
+
+(deftest the-default-fetch-reads-a-body-up-to-the-ceiling
+  ;; The ceiling is a real limit, not a small one: a full page of Volumes with
+  ;; the fields projection is orders of magnitude under it, so nothing the
+  ;; catalog legitimately answers is truncated by it.
+  (serving (fn [_] (json-of-size google/max-body-bytes))
+           (fn [url]
+             (let [{:keys [status body]} (google/http-fetch url api-key)]
+               (is (= 200 status))
+               (is (= google/max-body-bytes (count body))
+                   "a body AT the ceiling arrives whole, not truncated")
+               (is (= 1 (count (:volumes (google/parse-body body)))))))))
+
+(deftest the-default-fetch-refuses-a-body-past-the-ceiling
+  ;; The body is buffered into memory, so its SIZE is a resource bound exactly
+  ;; as the timeouts are — and it was the one that was missing: a hostile or
+  ;; misbehaving upstream could answer a gigabyte and drive heap growth on a
+  ;; request thread. `BodySubscribers.limiting` bounds it.
+  (serving (fn [_] (filler (inc google/max-body-bytes)))
+           (fn [url]
+             (testing "the overrun is refused, not buffered"
+               (is (thrown? java.io.IOException (google/http-fetch url api-key))))
+             (testing "and it reaches the reader as an outcome, never an escaped exception"
+               ;; The fetch is the real one; only the URL is local. A truncated
+               ;; body that PARSED would be the quiet failure this guards
+               ;; against, so :unavailable is the only acceptable answer.
+               (let [errors (java.io.StringWriter.)
+                     result (binding [*err* errors]
+                              ((google/book-search
+                                {:api-key api-key
+                                 :fetch (fn [_built-url key] (google/http-fetch url key))})
+                               {:title "Clojure"}))]
+                 (is (= {:outcome :error :reason :unavailable} result))
+                 (is (not (str/includes? (str errors) api-key))))))))
 
 (defn- selector-threads
   "How many java.net.http selector-manager threads are alive. The JDK starts

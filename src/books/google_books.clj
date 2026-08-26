@@ -20,11 +20,16 @@
   (:require [books.catalog :as catalog]
             [clojure.string :as str]
             [jsonista.core :as json])
-  (:import (java.net URI URLEncoder)
+  (:import (java.io IOException)
+           (java.net URI URLEncoder)
            (java.net.http HttpClient HttpClient$Redirect HttpRequest
-                          HttpResponse$BodyHandlers)
+                          HttpResponse$BodyHandler HttpResponse$BodySubscriber
+                          HttpResponse$BodySubscribers)
+           (java.nio ByteBuffer)
            (java.nio.charset StandardCharsets)
-           (java.time Duration)))
+           (java.time Duration)
+           (java.util.concurrent Flow$Subscription)
+           (java.util.concurrent.atomic AtomicBoolean AtomicLong)))
 
 (def ^:private endpoint "https://www.googleapis.com/books/v1/volumes")
 
@@ -37,6 +42,26 @@
   "The partial-response projection: exactly the fields the card renders, so the
   catalog does not ship (and we do not parse) a payload of everything else."
   "items(id,volumeInfo(title,authors,publishedDate,description,imageLinks/thumbnail))")
+
+(def max-body-bytes
+  "The ceiling on a response body, in bytes.
+
+  A response is buffered into memory before it is parsed, so its SIZE is a
+  resource bound exactly as the timeouts above are — and it was the one this
+  adapter did not have: an upstream that answered without end (hostile, or
+  merely broken, or a captive-portal proxy) could grow the heap on a request
+  thread until the process died.
+
+  2 MiB is a ceiling with room, not a budget. One search asks for 20 Volumes
+  through the `fields` projection above — id, title, authors, date, description
+  and a thumbnail URL — and the description is the only field that is not a
+  line or two; even at several kilobytes each, a full page lands two orders of
+  magnitude under this. Nothing the catalog legitimately answers is refused;
+  what is refused is a body that stopped being a search result.
+
+  Public so a test can drive a body to exactly this size rather than guessing
+  it."
+  (* 2 1024 1024))
 
 (def ^:private timeouts
   "Every wait is bounded, so an unresponsive catalog fails fast instead of
@@ -194,9 +219,68 @@
   []
   @shared-client)
 
+(defn- limiting
+  "`downstream`, but refusing more than `capacity` bytes.
+
+  The JDK ships no public equivalent — `HttpResponse.BodySubscribers` offers
+  `buffering` and `mapping` but nothing that bounds a body; the limiting
+  subscriber the JDK uses for its own `ofFile` lives in `jdk.internal.net.http`
+  and is not exported. So it is written here, and it is small: count what
+  arrives, and the first chunk that crosses the line cancels the subscription
+  and fails the downstream with an `IOException`. `failed` makes that a
+  one-shot — after a cancel the producer may still deliver a queued chunk or an
+  `onComplete`, and a downstream must see exactly one terminal signal.
+
+  Decorating the subscriber (rather than reading an `ofInputStream` body under
+  our own loop) is what keeps the OTHER bound intact: `HttpClient/send` returns
+  only once the body subscriber has terminated, so the request timeout still
+  covers body reception. A streamed body would return from `send` at the
+  headers and leave a slow trickle unbounded in time."
+  [^HttpResponse$BodySubscriber downstream ^long capacity]
+  (let [seen (AtomicLong.)
+        failed (AtomicBoolean. false)
+        subscription (volatile! nil)]
+    (reify HttpResponse$BodySubscriber
+      (getBody [_] (.getBody downstream))
+      (onSubscribe [_ s]
+        (vreset! subscription s)
+        (.onSubscribe downstream s))
+      (onNext [_ buffers]
+        (let [arrived (transduce (map (fn [^ByteBuffer b] (.remaining b))) + 0 buffers)]
+          (cond
+            (<= (.addAndGet seen arrived) capacity)
+            (.onNext downstream buffers)
+
+            (.compareAndSet failed false true)
+            (do (some-> ^Flow$Subscription @subscription (.cancel))
+                (.onError downstream
+                          (IOException. (str "response body exceeds " capacity " bytes")))))))
+      (onError [_ t]
+        (when (.compareAndSet failed false true)
+          (.onError downstream t)))
+      (onComplete [_]
+        (when-not (.get failed)
+          (.onComplete downstream))))))
+
+(def ^:private bounded-body
+  "The body handler every fetch uses: the response as a UTF-8 string, and never
+  more than `max-body-bytes` of it.
+
+  `BodyHandlers/ofString` — what this used to be — reads whatever arrives, so
+  the only bound on the body was the upstream's good manners. The overrun
+  surfaces as a THROWN fault, which `book-search` already turns into
+  `{:outcome :error :reason :unavailable}`; a truncated body that went on to
+  parse into a plausible-looking short list of Volumes would be the quiet
+  failure worth avoiding."
+  (reify HttpResponse$BodyHandler
+    (apply [_ _response-info]
+      (limiting (HttpResponse$BodySubscribers/ofString StandardCharsets/UTF_8)
+                max-body-bytes))))
+
 (defn http-fetch
   "GET `url` with `api-key` as the credential header, answering
-  `{:status … :body …}`. Bounded by `timeouts`. This is the default `:fetch` —
+  `{:status … :body …}`. Bounded on both axes: by `timeouts` in seconds and by
+  `max-body-bytes` in bytes. This is the default `:fetch` —
   public so the one piece of this namespace that the canned-body tests cannot
   reach is still reachable by a test of its own."
   [url api-key]
@@ -209,7 +293,7 @@
                     (.header api-key-header api-key)
                     (.GET)
                     (.build))
-        response (.send client request (HttpResponse$BodyHandlers/ofString))]
+        response (.send client request bounded-body)]
     {:status (.statusCode response) :body (.body response)}))
 
 (defn book-search
