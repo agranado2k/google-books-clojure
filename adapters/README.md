@@ -23,6 +23,14 @@ rather than inferring it from a regex example in a comment.
 | Adapter | For | Wires |
 | --- | --- | --- |
 | [`node-ts/`](node-ts/README.md) | A pnpm/TypeScript monorepo with Vitest | the TDD pairing guard's globs, `behavior-delta.sh`'s contract surfaces, a differential Stryker mutation diagnostic, and a promptfoo eval tier for agent-facing prompt surfaces |
+| [`claude-code/`](claude-code/README.md) | One agent harness, rather than one stack | where a resolved capability tier goes at spawn time, and how to fill in `scripts/agents.config.sh` |
+
+Note that the two adapters answer different *kinds* of question. `node-ts/` is a
+**stack** adapter: copy from it only if your stack matches. `claude-code/` is a
+**harness** adapter: it holds the one wiring detail the tier resolver cannot
+state portably — which parameter of a spawn call takes a model identifier. If
+you drive the kit with a different harness, that is the question to answer, and
+the answer belongs in a sibling directory here.
 
 ## Dormant by design — and why this directory is still in your repo
 

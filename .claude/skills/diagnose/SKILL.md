@@ -114,8 +114,8 @@ Required before declaring done:
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message — so the next debugger learns
 
-**Then ask: what would have prevented this bug?** If the answer is architectural — no good test seam, tangled callers, hidden coupling — that is a decision, not a chore: write it up as a record under `docs/adr/` (or a ticket via `/to-tickets`, if the shape is already clear) with the specifics this diagnosis produced. Make the recommendation **after** the fix is in, not before — you have more information now than when you started.
+**Then ask: what would have prevented this bug?** If the answer is architectural — no good test seam, tangled callers, hidden coupling — that is a decision, not a chore. Hand it to `/improve-codebase-architecture`, which turns "there was no correct seam" into a designed deepening; the specifics this diagnosis produced (which seam was missing, which callers the bug needed) are exactly the input that skill's exploration phase otherwise has to guess at. What comes out is a record under `docs/adr/` or a ticket via `/to-tickets` — never a drive-by refactor on top of the fix (shared invariant §10). Make the recommendation **after** the fix is in, not before: you have more information now than when you started.
 
 ---
 
-*Adapted from `engineering/diagnose` in [mattpocock/skills](https://github.com/mattpocock/skills) — MIT, see `.claude/skills/LICENSE-mattpocock-skills.md`. Tool names in the loop list were generalised, and the architectural hand-off at the end points at a decision record rather than a skill this kit does not ship.*
+*Adapted from `engineering/diagnose` in [mattpocock/skills](https://github.com/mattpocock/skills) — MIT, see `.claude/skills/LICENSE-mattpocock-skills.md`. Tool names in the loop list were generalised, and the architectural hand-off at the end names this kit's `/improve-codebase-architecture` and the decision record it produces.*

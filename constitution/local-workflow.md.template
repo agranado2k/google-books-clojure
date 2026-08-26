@@ -79,8 +79,52 @@ check, say so in the row rather than pretending.
 | {{TRIGGER_SOURCE_1}} | {{TRIGGER_TARGET_1}} |
 | {{TRIGGER_SOURCE_2}} | {{TRIGGER_TARGET_2}} |
 | A skill, hook, or command | the root `AGENTS.md` (or the article that owns the rule) |
+| `scripts/agents.config.sh` (a tier's model, or your provider) | the tier rubric below, if the change means a tier's cost/benefit shape moved rather than just its identifier |
 | Any manual layer (root, article, or nested) | the other layers, so one home per rule survives: a root rule that grew gets its own article; an article rule that became binding gets promoted to the root. Never leave the same rule in two homes |
 | `constitution/shared-invariants.md` | **nothing here** — it is shared layer. A local exception goes in *this* article; the shared copy stays byte-identical to the kit's |
+
+## Capability tiers — the cost/benefit call
+
+The root `AGENTS.md` names the four tiers (`planner`, `implementer`,
+`mechanical`, `reviewer`) and where the mapping lives. This is the practice
+around them.
+
+**The decision is made at ticket-writing time, by the planner, in the open.**
+Not at spawn time, and never by an agent about its own session — an agent asked
+to size itself has no view of the wave's total budget and every incentive to say
+"the strongest one". `/to-tickets` stamps a tier on every ticket and surfaces
+the whole set at its quiz step, which is where a human overrides it.
+
+The rubric, in the order to ask it:
+
+1. **Is the definition of done checkable without judgement?** A rename, a
+   codemod, a dependency bump, a mechanical migration of call sites — the suite
+   is the oracle. ⇒ `mechanical`. This is the one that saves real money, because
+   it is also the most common ticket in an expand–migrate–contract wave.
+2. **Does the ticket's outcome constrain other tickets?** Decomposition, a
+   design decision, a schema, an interface everything else builds against. A
+   wrong answer is paid for by every downstream session, not just this one.
+   ⇒ `planner`.
+3. **Is the deliverable a verdict on a diff rather than the diff?** Fresh-context
+   adversarial reading, the standards axis of a review. ⇒ `reviewer`.
+4. **Otherwise** ⇒ `implementer`. This is the default, and defaulting is correct:
+   an unsure planner picking the cheap tier turns a saving into a re-run, and a
+   re-run costs more than the tier ever saved.
+
+Two rules that keep the rubric honest:
+
+- **Ambiguity resolves upward**, the opposite direction from the autonomy label
+  (which resolves to human-in-the-loop). Under-tiering is silent — you get a
+  plausible wrong diff — while over-tiering only costs money, and cost is
+  visible.
+- **A tier is not a permission.** It says which model runs the work, never how
+  much autonomy the work carries. The `ready-for-agent` label is the only thing
+  that says that, and a `mechanical` ticket with no label still stops for a
+  human.
+
+Unmapped is a working state: with `scripts/agents.config.sh` empty, every tier
+resolves to nothing, the spawn inherits the session's own model, and the
+resolver warns once so the gap is visible rather than assumed away.
 
 ## Review
 
@@ -93,6 +137,15 @@ check, say so in the row rather than pretending.
   `scripts/behavior-delta.sh` supplies the grounded candidate list for the
   second from the contract artifacts named in `scripts/guards.config.sh`.
 - **Automated review**: {{REVIEW_AUTOMATION}}. Bot review is {{REVIEW_BINDING}}.
+  This is also the mechanism `/implement` requests when it delivers: a review
+  workflow fires on PR open and runs where the secrets are, so it can reach a
+  reviewer from a different vendor than the session that wrote the code. With
+  nothing wired here, `/implement` falls back to an in-harness `/review-pr`
+  subagent on a different model tier — same review, narrower reach.
+  The kit ships that workflow rather than describing it:
+  `.github/workflows/ai-review.example.yml` holds two advisory reviewers from
+  two vendors, asked one identical prompt. It is **inert** until you rename it
+  and add a provider secret; record here which providers you actually wired.
 - **Fresh context per phase** (shared invariant §4): the reviewer must not see
   the implementation history. A reviewer who has read the author's narrative
   reviews the narrative instead of the diff.

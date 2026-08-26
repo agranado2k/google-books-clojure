@@ -51,6 +51,31 @@ never edit a shim.
    it warns and passes). Bypasses (`PUSH_WITHOUT_TESTS=1`, the `tdd-exempt` PR
    label in CI) are loud and deliberate, never routine.
 
+## Capability tiers
+
+Work in this repo is sized to one of **four tiers**, and the tier is a
+cost/benefit decision made when the ticket is written — not when the agent is
+spawned, and never by the agent about itself.
+
+| Tier | The work | The signal |
+| --- | --- | --- |
+| `planner` | Decomposition, design, architecture, triage of an ambiguous bug | Reads broadly, writes little; a wrong answer costs a whole wave downstream |
+| `implementer` | Building one ticket test-first through seams it has to find | The default for real work |
+| `mechanical` | Renames across call sites, codemods, dependency bumps, the contract half of expand–migrate–contract | A checkable definition of done — here that is `clojure -X:test` plus `scripts/check.sh`, not the model |
+| `reviewer` | Adversarial reading of a finished diff in fresh context | Undersize it and review becomes a rubber stamp |
+
+`/to-tickets` stamps a tier on every ticket and shows it at the quiz for
+override; `/implement` reads its ticket's tier when it spawns.
+
+**This manual names no model, and neither does any other file the kit ships.**
+Model identifiers rot on a vendor's schedule, so the tier → model mapping is
+data in `scripts/agents.config.sh` and the resolver is `scripts/agents.lib.sh`
+(`sh scripts/agents.lib.sh implementer` prints the mapped id). An unmapped tier
+is a working state: the resolver warns once, prints nothing, and the spawn
+inherits the session's own model. Which harness parameter receives that value is
+a wiring detail — see `adapters/claude-code/README.md` for one worked example,
+which is also the harness this repo is driven with.
+
 ## Agent trust boundary
 
 Your session — and any subagent you spawn — can hold all three legs of the
@@ -91,10 +116,15 @@ Load the article that covers what you are about to do — do not preload them al
   test tiers, what this repo is *not*.
 - `constitution/local-workflow.md.template` — this repo's process: commits,
   merges, review, the docs-trigger matrix, the log protocol.
+- `constitution/local-product.md` — the product: who uses it, and through which
+  surface. Small on purpose — it exists because `/dogfood` cannot run without a
+  declared surface and a declared set of personas, and that is knowledge only
+  this repo has.
 
-> **Kit note —** the two local articles ship as `.template` files carrying
+> **Kit note —** the remaining local articles ship as `.template` files carrying
 > double-brace marks. Fill the marks in, drop the `.template` suffix, and change
-> the two pointers above to the `.md` paths. The gate then holds them to the
+> each pointer above to the `.md` path (as `local-product.md` already is). The
+> gate then holds them to the
 > same standard as this file: every path and command they name must exist, and
 > an article this root never points at is reported as unreachable.
 
@@ -143,13 +173,25 @@ by path works today; porting them to a second command format does not.
 
 Spec → tickets → implementation → review → landing:
 
-`/grill-me` → `/to-prd` → `/to-tickets` → `/implement` (which drives `/tdd`) →
-`/review-pr` → `/pr-iterate` → `/merge-train` → `/worktree-cleanup`.
+`/grill-me` → `/to-prd` → `/to-tickets` → `/implement` (which drives `/tdd`, and
+ends at an open PR carrying an independent review) → `/review-pr` →
+`/pr-iterate` → `/merge-train` → `/worktree-cleanup`.
 
-Three step out of that line: `/grill-with-docs` replaces `/grill-me` once the
+Four step out of that line: `/grill-with-docs` replaces `/grill-me` once the
 project has a glossary and decision records worth challenging a plan against,
-`/prototype` answers a feasibility question the spec is blocked on, and
-`/diagnose` is for a bug rather than a feature.
+`/prototype` answers a feasibility question the spec is blocked on, `/diagnose`
+is for a bug rather than a feature, and `/improve-codebase-architecture` is for
+an area that has become hard to change — it finds and designs the deepening,
+then re-enters the line at `/to-tickets`, because a behaviour-preserving refactor
+is a ticket of its own and never a passenger on a feature diff (shared invariant
+§10).
+
+One more sits *beside* the line rather than on it. `/dogfood` walks this
+project's own personas through its real user-facing surface — here, the web app
+in a browser — before a human does, and hands what it hits to `/to-tickets` as
+candidate tickets. It fixes nothing itself, on purpose: a repair by the session
+that found the problem destroys the only independent reading anyone had of it.
+Its personas and surfaces are declared in `constitution/local-product.md`.
 
 ## Quick reference
 
@@ -159,10 +201,12 @@ project has a glossary and decision records worth challenging a plan against,
 | Answer "would that even work?"      | `/prototype` — throwaway spike, outside the repo tree, finding recorded |
 | Turn agreed context into a spec     | `/to-prd`                                        |
 | Split a spec into tracer-bullet tickets | `/to-tickets` — one ticket per fresh session, autonomy label decided at write time |
-| Build one ticket                    | `/implement` — restate, then drive `/tdd` through the seams |
+| Build one ticket                    | `/implement` — restate, drive `/tdd` through the seams, then deliver: push, open the PR, request an independent review. Stops there; the merge is yours |
 | Write the code test-first           | `/tdd` — red, green, refactor, one behavior at a time |
 | Debug a hard bug or a perf regression | `/diagnose` — build the feedback loop first     |
+| Rescue an area that has become hard to change | `/improve-codebase-architecture` — deepening candidates, interface design, glossary discipline; hands off to `/to-tickets` |
 | Review a branch before it lands     | `/review-pr` — two axes: standards to agents, behavior to you |
+| Use the product before a user does  | `/dogfood` — declared personas, real surface, findings out as candidate tickets; it never fixes what it finds |
 | Drive an open PR to green           | `/pr-iterate` — one closed loop; compose as `/loop /pr-iterate <PR#>` |
 | Land a batch of green PRs           | `/merge-train` — **you** start it; no agent ever does |
 | Prune merged worktrees              | `/worktree-cleanup` — wraps `scripts/worktree-cleanup.sh` |
@@ -174,6 +218,9 @@ project has a glossary and decision records worth challenging a plan against,
 | Keep your product name out of the shared layer | `scripts/docs-conformance/local-vocabulary.mjs` |
 | Test the gate itself                | `scripts/docs-conformance/test/` — fixture trees, one per rule |
 | Tell the guards your repo's shape   | `scripts/guards.config.sh` — source globs, test globs, contract artifacts |
+| Map a capability tier to a model    | `scripts/agents.config.sh` — yours; the kit names no model |
+| Resolve a tier at spawn time        | `scripts/agents.lib.sh` — `sh scripts/agents.lib.sh <tier>`; unmapped warns once and inherits the session model |
+| Know who this product is for, and how to drive it | `constitution/local-product.md` — surfaces, personas, and the blast radius a `/dogfood` session stays inside |
 | Know which files are shared layer   | `VERSION`                                        |
 | Understand `CLAUDE.md` / `GEMINI.md` | shims — one import line each, pointing here. Never edit them; the gate rejects a shim that grows content |
 | Bypass the gate once, loudly        | `PUSH_WITHOUT_DOCS=1 git push` — logged, and it only defers the failure |
