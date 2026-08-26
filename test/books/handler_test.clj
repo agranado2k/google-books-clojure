@@ -163,6 +163,46 @@
           (is (not (str/includes? reported "s3cret")))
           (is (not (str/includes? reported "title=clojure"))))))))
 
+(defn- unreportable
+  "A fault whose own message cannot be read: `getMessage` throws. It stands in
+  for every way reporting a fault can itself fail — a closed `*err*` is the
+  other — so the test below is about the reporting throwing, not about one
+  particular way it does."
+  []
+  (proxy [RuntimeException] ["unreadable"]
+    (getMessage [] (throw (IllegalStateException. "getMessage exploded")))))
+
+(deftest a-fault-whose-own-reporting-throws-still-answers-the-error-page
+  ;; `fail!` runs INSIDE the catch: it reports, then builds the 500. Reporting
+  ;; that throws therefore escaped this middleware entirely and handed the
+  ;; request back to Jetty's own error page — the exact disclosure the
+  ;; middleware exists to prevent, reached by the one path nobody watches.
+  (let [app (handler/make-app nil {:db-optional? true
+                                   :book-search (fn [_query] (throw (unreportable)))})
+        response (binding [*err* (java.io.StringWriter.)]
+                   (app {:request-method :get :uri "/search" :query-string "title=clojure"}))]
+    (is (= 500 (:status response)))
+    (is (str/includes? (str (:body response)) "Something went wrong"))))
+
+(deftest a-reported-fault-is-redacted-before-it-reaches-stderr
+  ;; `books.google-books/book-search` catches Exception, so an Error from the
+  ;; fetch path arrives here unfiltered — and its message belongs to whatever
+  ;; threw it, not to us. `google-books/report!` redacts for exactly that
+  ;; reason; this line prints the same kind of text and did not.
+  (let [secret "test-key-not-a-real-one"
+        errors (java.io.StringWriter.)
+        app (handler/make-app nil
+                              {:db-optional? true
+                               :redact #(str/replace % secret "[redacted]")
+                               :book-search (fn [_query]
+                                              (throw (AssertionError.
+                                                      (str "upstream said " secret))))})
+        response (binding [*err* errors]
+                   (app {:request-method :get :uri "/search" :query-string "title=clojure"}))]
+    (is (= 500 (:status response)) "precondition: the Error reached the error page")
+    (is (not (str/includes? (str errors) secret)) "a credential must never reach a log line")
+    (is (str/includes? (str errors) "[redacted]") "…but the fault is still reported")))
+
 ;; ---------------------------------------------------------------------------
 ;; The static surface: /css/ and nothing else.
 ;; Backed by test-resources/public/css/fixture.css so these never depend on the

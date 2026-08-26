@@ -44,7 +44,16 @@
   (start http-port
          (handler/make-app (db/datasource database-url)
                            {:db-optional? (boolean db-optional?)
-                            :book-search (google/book-search {:api-key books-api-key})})))
+                            :book-search (google/book-search {:api-key books-api-key})
+                            ;; The handler's last-line fault report prints a
+                            ;; message built by whatever threw. `book-search`
+                            ;; catches Exception, so an Error from the fetch
+                            ;; path is not converted to an outcome and reaches
+                            ;; that line with its own text — the key included.
+                            ;; This is the only layer that knows the key, so it
+                            ;; is the layer that hands down the means to strip
+                            ;; it.
+                            :redact #(google/redact % books-api-key)})))
 
 (defn -main [& _args]
   (.join (run {:http-port (port (System/getenv "PORT"))

@@ -170,13 +170,21 @@
    :body server-error-body})
 
 (defn- report-failure!
-  "One stderr line per unhandled fault: exception class and message, and
-  nothing else. Never the request, the URI, the params or the ex-data — every
-  one of those can carry reader input or a credential, and this line is the
-  operator's, not the caller's."
-  [^Throwable t]
+  "One stderr line per unhandled fault: exception class and message, redacted,
+  and nothing else. Never the request, the URI, the params or the ex-data —
+  every one of those can carry reader input or a credential, and this line is
+  the operator's, not the caller's.
+
+  `redact` is why the message is not printed raw. The message belongs to
+  whatever threw, not to us: `books.google-books/book-search` catches
+  `Exception`, so an `Error` raised on the fetch path is not turned into an
+  outcome there and arrives here carrying whatever text it was built with —
+  the API key included. `google-books/report!` redacts for that reason on its
+  own path; this is the same reasoning at the outer boundary."
+  [redact ^Throwable t]
   (binding [*out* *err*]
-    (println (str "unhandled request failure: " (.getName (class t)) ": " (ex-message t)))))
+    (println (redact (str "unhandled request failure: "
+                          (.getName (class t)) ": " (ex-message t))))))
 
 (defn- wrap-error-page
   "Catch everything, so no handler can serve internals. Ring has no error
@@ -187,9 +195,23 @@
 
   Throwable rather than Exception: an Error (a bad cast compiled by an
   unexpected type, an assertion) is exactly as disclosing and exactly as
-  survivable at the request boundary."
-  [handler]
-  (letfn [(fail! [t] (report-failure! t) (server-error))]
+  survivable at the request boundary.
+
+  `redact` strips a known secret out of the reported line — see
+  `report-failure!`. It defaults to `identity` in `make-app`, so an app wired
+  without one still reports."
+  [redact handler]
+  (letfn [(fail! [t]
+            ;; Reporting runs INSIDE the catch, so anything IT throws — a
+            ;; closed `*err*`, a `getMessage` that throws — used to escape this
+            ;; middleware and hand the request straight back to Jetty's own
+            ;; error page: the exact disclosure this exists to prevent, reached
+            ;; by the one path nobody watches. The 500 is now produced whether
+            ;; or not the fault could be reported; an unreportable fault is
+            ;; still a fault the caller must not see the inside of.
+            (try (report-failure! redact t)
+                 (catch Throwable _ nil))
+            (server-error))]
     (fn
       ([request]
        (try (handler request)
@@ -235,14 +257,19 @@
     query map. Defaults to the not-configured one, so an app wired without a
     Book search renders the search page's error state instead of failing to
     boot.
+  * `:redact` — a function of one string, applied to the last-line fault report
+    before it is printed. Defaults to `identity`; `books.server/run` passes one
+    that strips the Books API key, because only the boot path knows it.
 
   The connectivity result is cached for `db/check-ttl-ms`: /health is
   unauthenticated, so it must not open a database connection per request."
-  [datasource {:keys [db-optional? probe book-search] :or {db-optional? false}}]
+  [datasource {:keys [db-optional? probe book-search redact]
+               :or {db-optional? false redact identity}}]
   (let [check (db/checker datasource (cond-> {} probe (assoc :probe probe)))
         health-handler (health check db-optional?)
         search-handler (search (or book-search catalog/not-configured))]
     (wrap-error-page
+     redact
      (ring/ring-handler
       (ring/router
        [["/" {:get landing :head landing}]

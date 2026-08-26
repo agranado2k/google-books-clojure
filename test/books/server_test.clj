@@ -80,6 +80,22 @@
                (health-get jetty)))
         (finally (.stop jetty))))))
 
+(deftest full-boot-hands-the-error-page-a-redactor-for-the-api-key
+  (testing "the last-line fault report can print text we did not construct, so it is redacted"
+    ;; `book-search` catches Exception; an Error from the fetch path is not
+    ;; caught there and reaches `wrap-error-page`, whose stderr line prints the
+    ;; message verbatim. Only the boot path knows the key, so only the boot path
+    ;; can hand down the means to strip it.
+    (let [wiring (atom nil)]
+      (with-redefs [handler/make-app (fn [_datasource options]
+                                       (reset! wiring options)
+                                       (constantly {:status 200}))
+                    server/start (fn [_http-port app] app)]
+        (server/run {:http-port 0 :database-url nil :db-optional? true
+                     :books-api-key "test-key-not-a-real-one"}))
+      (is (= "connect failed for [redacted]"
+             ((:redact @wiring) "connect failed for test-key-not-a-real-one"))))))
+
 (deftest full-boot-without-an-api-key-serves-a-degraded-search-page
   (testing "no GOOGLE_BOOKS_API_KEY must not crash the boot — the page says so instead"
     (let [jetty (server/run {:http-port 0 :database-url nil :db-optional? true
