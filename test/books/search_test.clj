@@ -328,13 +328,18 @@
    ["the prompt" {:htmx? true :query ""}]])
 
 (deftest search-tells-caches-that-one-url-serves-two-representations
-  ;; /search answers a whole page or a bare fragment at ONE URL, chosen by a
-  ;; request header. A shared cache that stored the fragment and replayed it to
-  ;; a document navigation would serve a page with no <html> and no header.
+  ;; /search answers a whole page or a bare fragment at ONE URL, chosen by
+  ;; request headers — BOTH of the headers `fragment-request?` reads, which is
+  ;; why naming only the first was a bug rather than a shorthand. A history
+  ;; restore carries `HX-Request: true` as well, so a cache keyed on that header
+  ;; alone can answer a restore with a stored fragment — and htmx swaps a
+  ;; restore into `document.body`, which is exactly the page-destroying swap the
+  ;; restore handling exists to prevent.
   (doseq [[label opts] search-representations]
     (testing label
       (let [response (search (stub/found [stub/sparse]) (get opts :query "title=clojure") opts)]
-        (is (= "HX-Request" (get-in response [:headers "Vary"])))))))
+        (is (= "HX-Request, HX-History-Restore-Request"
+               (get-in response [:headers "Vary"])))))))
 
 (deftest search-results-are-revalidated-rather-than-refused-storage
   ;; `no-store` was the first answer here and it was the wrong one: Chrome

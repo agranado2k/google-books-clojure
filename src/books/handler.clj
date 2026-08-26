@@ -60,11 +60,18 @@
        (not (header-is-true? request "hx-history-restore-request"))))
 
 (def ^:private search-cache-headers
-  {;; One URL, two representations, chosen by a REQUEST header — so any cache
-   ;; between us and the reader has to key on that header or it will replay a
-   ;; bare fragment into a document navigation (a page with no <html>, no
-   ;; header, no stylesheet).
-   "Vary" "HX-Request"
+  {;; One URL, two representations, chosen by REQUEST headers — so any cache
+   ;; between us and the reader has to key on them or it will replay a bare
+   ;; fragment into a document navigation (a page with no <html>, no header, no
+   ;; stylesheet).
+   ;;
+   ;; BOTH headers `fragment-request?` reads, not just the first. A history
+   ;; restore sends `HX-Request: true` too, so a cache keyed on that alone can
+   ;; answer a restore out of a stored fragment — and htmx swaps a restore into
+   ;; `document.body`, which is precisely the page-destroying swap the restore
+   ;; handling exists to prevent. This list and that predicate have to name the
+   ;; same headers.
+   "Vary" "HX-Request, HX-History-Restore-Request"
    ;; …and `Vary` alone is not enough to rely on: intermediaries have a long
    ;; history of normalising away headers they do not recognise, and this one
    ;; is not a standard content-negotiation header. So the belt as well as the
