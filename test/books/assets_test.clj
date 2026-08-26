@@ -28,7 +28,9 @@
     (is (= assets/htmx-sha256 (sha256 assets/htmx-resource))
         "the vendored htmx does not match its pinned digest")))
 
-(deftest the-served-url-names-the-version-it-serves
-  (testing "the URL is version-stamped, which is what lets it be cached forever"
-    (is (= "/js/htmx-2.0.10.min.js" assets/htmx-path))
-    (is (= (str "public" assets/htmx-path) assets/htmx-resource))))
+;; That the SERVED url and the classpath resource name the same file is proved
+;; where it matters and where it can actually be wrong: `books.handler-test`
+;; does a real GET of `assets/htmx-path` and asserts a 200 with a JavaScript
+;; content type. A test here that restated the two defs to each other could only
+;; fail when someone edited a def, and it would go green again by editing the
+;; test — which is not a test, it is a copy.

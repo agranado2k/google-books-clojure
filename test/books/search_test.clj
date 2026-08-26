@@ -331,9 +331,13 @@
         (is (= "no-store" (get-in response [:headers "Cache-Control"])))))))
 
 (deftest the-landing-page-points-at-the-search-page
-  (testing "the slice is reachable without typing a URL"
+  (testing "the roadmap card that announces the slice is itself the link to it"
+    ;; NOT a bare `href="/search"`: the shared header carries that link on every
+    ;; page, this one included, so an assertion on the href alone stays green
+    ;; with the roadmap card deleted — it cannot fail for the reason it states.
+    ;; The card's link is the one inside the card's heading.
     (let [rendered (body ((app (stub/found [])) {:request-method :get :uri "/"}))]
-      (is (str/includes? rendered "href=\"/search\"")))))
+      (is (re-find #"<h3[^>]*><a[^>]*href=\"/search\"[^>]*>Search</a></h3>" rendered)))))
 
 (deftest the-port-is-the-only-thing-the-handler-knows
   (testing "make-app takes the port, exactly like it takes the datasource"

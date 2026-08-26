@@ -101,7 +101,13 @@
       (is (str/includes? body "Search the Google Books catalog. Keep the books that matter."))
       ;; Search shipped, so the roadmap card says so rather than "coming next".
       (is (str/includes? body "Find a book in the Google Books catalog by title, by author, or by both."))
-      (is (str/includes? body "Available now"))
+      ;; Tied to the SEARCH card, not merely present on the page: a bare
+      ;; "Available now" is equally there if Bookmarks became :now and Search
+      ;; :next — the one regression this line exists to catch. The bounded gap
+      ;; is the status paragraph's own open tag and nothing else; the next
+      ;; card's status is several hundred characters further on.
+      (is (re-find #"(?s)Find a book in the Google Books catalog by title, by author, or by both\..{0,120}Available now"
+                   body))
       (is (str/includes? body "Save the books you care about and find them again in one place."))
       (is (str/includes? body "an account so they follow you around")))))
 
