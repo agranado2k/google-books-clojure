@@ -8,6 +8,12 @@ target/
 # Generated Tailwind stylesheet — built by scripts/build-css.sh from styles/app.css
 resources/public/css/
 
+# Local environment files — they hold real credentials (GOOGLE_BOOKS_API_KEY,
+# DATABASE_URL). Ignored in the repo rather than in .git/info/exclude, because a
+# local exclude protects one clone and does not travel with the repository.
+.env
+.env.*
+
 # Editor/REPL litter
 .nrepl-port
 .lsp/
