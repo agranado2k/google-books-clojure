@@ -8,8 +8,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [ring.adapter.jetty :as jetty])
-  (:import (java.net URLDecoder)
-           (java.nio.charset StandardCharsets)))
+  (:import (java.net InetAddress ServerSocket Socket URLDecoder)
+           (java.nio.charset StandardCharsets)
+           (java.time Duration)))
 
 (def ^:private api-key "test-key-not-a-real-one")
 
@@ -290,6 +291,121 @@
                                {:title "Clojure"}))]
                  (is (= {:outcome :error :reason :unavailable} result))
                  (is (not (str/includes? (str errors) api-key))))))))
+
+;; ---------------------------------------------------------------------------
+;; The OTHER axis of the same bound: wall-clock time over the whole exchange.
+;; ---------------------------------------------------------------------------
+
+(defn- stalling
+  "Run a local server that answers `200`, its headers, and one 8 KiB chunk of a
+  body it promised but never finishes — then holds the connection open, sending
+  nothing more, for `stall-ms` — and call `f` with its URL. Never Google.
+
+  A raw socket rather than the Jetty `serving` uses, because the fault under
+  test is precisely the thing no server API will do for you on purpose: stop
+  mid-body and keep the connection. Jetty would end the exchange on its own
+  idle timeout, which is the right answer for the wrong reason and would hide
+  the bug."
+  [stall-ms f]
+  (let [socket (ServerSocket. 0 4 (InetAddress/getByName "127.0.0.1"))
+        workers (atom [])
+        serve! (fn [^Socket conn]
+                 (try
+                   (.read (.getInputStream conn) (byte-array 8192)) ; the request
+                   (let [out (.getOutputStream conn)]
+                     (.write out (.getBytes (str "HTTP/1.1 200 OK\r\n"
+                                                 "Content-Type: application/json\r\n"
+                                                 "Content-Length: 10000000\r\n\r\n")
+                                            StandardCharsets/UTF_8))
+                     (.write out (byte-array 8192 (byte (int \x))))
+                     (.flush out)
+                     (Thread/sleep (long stall-ms)))
+                   (catch Exception _ nil)
+                   (finally (try (.close conn) (catch Exception _ nil)))))
+        spawn! (fn [conn]
+                 (let [t (doto (Thread. #(serve! conn)) (.setDaemon true) (.start))]
+                   (swap! workers conj t)))
+        accepting (doto (Thread. #(try (while true (spawn! (.accept socket)))
+                                       (catch Exception _ nil)))
+                    (.setDaemon true)
+                    (.start))]
+    (try
+      (f (str "http://127.0.0.1:" (.getLocalPort socket) "/v"))
+      (finally
+        (.close socket)
+        (.interrupt accepting)
+        (run! #(.interrupt ^Thread %) @workers)))))
+
+(defn- elapsed-ms [started-nanos]
+  (quot (- (System/nanoTime) started-nanos) 1000000))
+
+(def ^:private test-budget
+  "A deliberately tiny total budget. Production runs on 20 seconds
+  (`google/timeouts`) and the three tests below assert the SHAPE of the
+  deadline rather than its length, so they buy the same evidence for half a
+  second each."
+  (Duration/ofMillis 500))
+
+(def ^:private stall-ms
+  "How long the stalling server holds its connection: comfortably past the test
+  budget, and past the ceiling each test allows, so 'it finished in time' can
+  only mean OUR deadline fired."
+  20000)
+
+(deftest the-default-fetch-bounds-the-whole-exchange-in-wall-clock-time
+  ;; Measured before this bound existed, against a server that answered 200,
+  ;; its headers and one 8 KiB chunk and then simply stopped sending:
+  ;; `http-fetch` blocked for the ENTIRE stall — 45.2 s against a 45 s stall,
+  ;; 120.2 s against a 120 s one — while `:request` sat at ten seconds.
+  ;; `HttpRequest.timeout` bounds the wait for the response HEADERS and nothing
+  ;; after them, and the byte ceiling cannot help either: a trickle never
+  ;; reaches 2 MiB. With ring's default 50-thread pool, fifty such requests
+  ;; consume it permanently and only a restart gets it back. With the deadline,
+  ;; the same 120 s stall is refused in 20.1 s.
+  (stalling
+   stall-ms
+   (fn [url]
+     (let [started (System/nanoTime)]
+       (is (thrown? java.io.IOException
+                    (google/http-fetch url api-key test-budget)))
+       (let [took (elapsed-ms started)]
+         (is (< took 10000)
+             (str "a stalled body must fail on OUR deadline, not on the upstream's "
+                  "goodwill; the fetch blocked for " took " ms")))))))
+
+(deftest a-catalog-that-stalls-mid-body-reaches-the-reader-as-unavailable
+  ;; The deadline is only worth having if it degrades the way every other fault
+  ;; does. The fetch here is the real one; only the URL is local.
+  (stalling
+   stall-ms
+   (fn [url]
+     (let [errors (java.io.StringWriter.)
+           result (binding [*err* errors]
+                    ((google/book-search
+                      {:api-key api-key
+                       :fetch (fn [_built-url key]
+                                (google/http-fetch url key test-budget))})
+                     {:title "Clojure"}))]
+       (is (= {:outcome :error :reason :unavailable} result))
+       (is (not (str/includes? (str errors) api-key)))))))
+
+(deftest a-timed-out-exchange-leaves-the-shared-client-usable
+  ;; The client is one instance for the life of the process, so a deadline that
+  ;; poisoned it would turn one stalled upstream into every later search
+  ;; failing. Cancelling the exchange rather than abandoning it is what keeps
+  ;; this true.
+  (stalling
+   stall-ms
+   (fn [stalled-url]
+     (is (thrown? java.io.IOException
+                  (google/http-fetch stalled-url api-key test-budget))
+         "precondition: the deadline fired")
+     (serving (fn [_] "{\"items\":[{\"id\":\"a\",\"volumeInfo\":{\"title\":\"Still working\"}}]}")
+              (fn [good-url]
+                (let [{:keys [status body]} (google/http-fetch good-url api-key)]
+                  (is (= 200 status))
+                  (is (= [{:id "a" :title "Still working"}]
+                         (:volumes (google/parse-body body))))))))))
 
 (defn- selector-threads
   "How many java.net.http selector-manager threads are alive. The JDK starts

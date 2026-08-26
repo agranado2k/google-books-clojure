@@ -28,7 +28,8 @@
            (java.nio ByteBuffer)
            (java.nio.charset StandardCharsets)
            (java.time Duration)
-           (java.util.concurrent Flow$Subscription)
+           (java.util.concurrent CompletableFuture ExecutionException Flow$Subscription
+                                 TimeUnit TimeoutException)
            (java.util.concurrent.atomic AtomicBoolean AtomicLong)))
 
 (def ^:private endpoint "https://www.googleapis.com/books/v1/volumes")
@@ -63,11 +64,34 @@
   it."
   (* 2 1024 1024))
 
-(def ^:private timeouts
+(def timeouts
   "Every wait is bounded, so an unresponsive catalog fails fast instead of
-  pinning a request thread — the same posture `books.db` takes for Postgres."
+  pinning a request thread — the same posture `books.db` takes for Postgres.
+
+  Three bounds, because the JDK's two do not cover the whole exchange:
+
+  * `:connect` — `HttpClient.connectTimeout`, the TCP/TLS handshake.
+  * `:request` — `HttpRequest.timeout`. This one is narrower than its name
+    suggests: it bounds the wait for the response **headers**, and nothing
+    after them.
+  * `:total` — the deadline this namespace imposes itself, covering the whole
+    exchange including body reception. It is the only bound that a body which
+    arrives and then STOPS ever reaches. Measured without it, against a server
+    that answered 200, its headers and one 8 KiB chunk and then held the
+    connection: `http-fetch` blocked for the entire length of the stall —
+    45.2 s against a 45 s stall, 120.2 s against a 120 s one — while
+    `:request` sat at ten seconds. The byte ceiling below does not help there
+    either: a trickle never reaches 2 MiB. With ring's default 50-thread pool,
+    fifty such requests consume it permanently.
+
+  20 seconds is a ceiling with room, not a budget: a page of 20 Volumes under
+  the `fields` projection is tens of kilobytes, which a working catalog
+  delivers in well under a second.
+
+  Public so a test can read the same numbers the adapter runs on."
   {:connect (Duration/ofSeconds 5)
-   :request (Duration/ofSeconds 10)})
+   :request (Duration/ofSeconds 10)
+   :total (Duration/ofSeconds 20)})
 
 ;; ---------------------------------------------------------------------------
 ;; The request
@@ -231,11 +255,14 @@
   one-shot — after a cancel the producer may still deliver a queued chunk or an
   `onComplete`, and a downstream must see exactly one terminal signal.
 
-  Decorating the subscriber (rather than reading an `ofInputStream` body under
-  our own loop) is what keeps the OTHER bound intact: `HttpClient/send` returns
-  only once the body subscriber has terminated, so the request timeout still
-  covers body reception. A streamed body would return from `send` at the
-  headers and leave a slow trickle unbounded in time."
+  This bounds SIZE and nothing else, and it is worth being exact about that:
+  this docstring used to claim that decorating the subscriber also kept the
+  time bound intact, because `send` returns only once the subscriber has
+  terminated. The first half is true and the conclusion does not follow —
+  `HttpRequest.timeout` stops at the response headers, so `send` blocking until
+  the subscriber terminates is the PROBLEM rather than the protection. A body
+  that trickles is bounded by neither this ceiling nor that timeout, and is
+  bounded instead by `:total` in `await-within`."
   [^HttpResponse$BodySubscriber downstream ^long capacity]
   (let [seen (AtomicLong.)
         failed (AtomicBoolean. false)
@@ -277,24 +304,58 @@
       (limiting (HttpResponse$BodySubscribers/ofString StandardCharsets/UTF_8)
                 max-body-bytes))))
 
+(defn- await-within
+  "The value of `pending`, waited for no longer than `budget`.
+
+  This is the wall-clock bound on the WHOLE exchange, and the reason the fetch
+  below is `sendAsync` rather than `send`: `send` blocks the calling thread
+  until the body subscriber terminates, and no JDK timeout covers that stretch,
+  so a body that arrives part-way and then stops holds the thread for as long
+  as the upstream cares to hold the connection.
+
+  Running out of budget is a failed search like any other, so it leaves as an
+  `IOException` — the same shape a refused connection has — for `book-search`
+  to turn into `{:outcome :error :reason :unavailable}`. The exchange is
+  cancelled on the way out so the connection is released rather than left
+  reading into a buffer nobody will read."
+  [^CompletableFuture pending ^Duration budget]
+  (try
+    (.get pending (.toMillis budget) TimeUnit/MILLISECONDS)
+    (catch TimeoutException _
+      (.cancel pending true)
+      (throw (IOException. (str "the catalog did not finish a response within "
+                                (.toMillis budget) " ms"))))
+    (catch InterruptedException e
+      (.cancel pending true)
+      (.interrupt (Thread/currentThread))
+      (throw (IOException. "interrupted while waiting for the catalog" e)))
+    ;; The real fault — a refused connection, an unresolvable host, the body
+    ;; ceiling above — arrives wrapped. Unwrap it, so the fault a caller sees
+    ;; and a log line reports is the one that actually happened.
+    (catch ExecutionException e
+      (throw (or (ex-cause e) e)))))
+
 (defn http-fetch
   "GET `url` with `api-key` as the credential header, answering
-  `{:status … :body …}`. Bounded on both axes: by `timeouts` in seconds and by
-  `max-body-bytes` in bytes. This is the default `:fetch` —
+  `{:status … :body …}`. Bounded on both axes: in bytes by `max-body-bytes`,
+  and in wall-clock time by `budget` (default `(:total timeouts)`) over the
+  whole exchange, headers and body alike. This is the default `:fetch` —
   public so the one piece of this namespace that the canned-body tests cannot
-  reach is still reachable by a test of its own."
-  [url api-key]
-  ;; Redirects are not followed — see `shared-client`. A 3xx therefore arrives
-  ;; here as a status, and `failure-reason` calls it :unavailable.
-  (let [client (http-client)
-        request (-> (HttpRequest/newBuilder (URI/create url))
-                    (.timeout (:request timeouts))
-                    (.header "Accept" "application/json")
-                    (.header api-key-header api-key)
-                    (.GET)
-                    (.build))
-        response (.send client request bounded-body)]
-    {:status (.statusCode response) :body (.body response)}))
+  reach is still reachable by a test of its own; the `budget` arity is there so
+  those tests can spend milliseconds proving the deadline rather than seconds."
+  ([url api-key] (http-fetch url api-key (:total timeouts)))
+  ([url api-key budget]
+   ;; Redirects are not followed — see `shared-client`. A 3xx therefore arrives
+   ;; here as a status, and `failure-reason` calls it :unavailable.
+   (let [client (http-client)
+         request (-> (HttpRequest/newBuilder (URI/create url))
+                     (.timeout (:request timeouts))
+                     (.header "Accept" "application/json")
+                     (.header api-key-header api-key)
+                     (.GET)
+                     (.build))
+         response (await-within (.sendAsync client request bounded-body) budget)]
+     {:status (.statusCode response) :body (.body response)})))
 
 (defn book-search
   "A Book search (see `books.catalog`) over the Google Books volumes endpoint:
