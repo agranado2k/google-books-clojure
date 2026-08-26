@@ -4,9 +4,12 @@
 - **Date**: 2026-08-09
 - **Deciders**: Arthur Granado, with agent research
 - **Supersedes / amends**: —
-- **Amended**: 2026-08-10 — clauses 5 and 6 extended for the vendored htmx (see
-  **Amendments** below). The decision is unchanged; its scope is stated for a
-  second asset type.
+- **Amended**: 2026-08-10 — clauses 4, 5 and 6 extended for the vendored htmx
+  (see **Amendments** below). The decision is unchanged; its scope is stated for
+  a second asset type. Clause 4 is extended in **scope** rather than in
+  mechanism: htmx is content this repo serves rather than a tool the image
+  fetches, so it is pinned by a committed file plus a digest in code, not by
+  `ADD --checksum` — the amendment's clause 2 argues that difference out.
 - **Superseded by**: —
 
 ## Context and problem statement

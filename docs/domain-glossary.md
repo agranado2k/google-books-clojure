@@ -56,9 +56,11 @@ page of explanation, that page is an ADR and the entry points at it.
   - _Avoid_: **Result**, **Item**, **Hit** — these name a Volume's role in one
     response rather than what it is.
 - **Catalog** — the external corpus of Volumes the app searches: Google Books.
-  Not ours, not persisted, and reachable only through the Book search port —
-  so "the Catalog is unavailable" is a state the UI renders, never an exception
-  that escapes a handler. Ref: `books.catalog`.
+  External system (a boundary, not a model — nothing in it is ours and none of
+  it is persisted here). Reachable only through the Book search port, which is
+  why "the Catalog is unavailable" is a state the UI renders rather than an
+  exception that escapes a handler. Ref: `books.catalog` (the outcomes),
+  `books.google-books` (the adapter that reaches it).
 - **Book search** — the port the app searches the Catalog through: a **plain
   function of one argument**, the normalized query map, answering an outcome map
   and never throwing. Port. Its real adapter is `books.google-books/book-search`;
@@ -81,8 +83,19 @@ the terms that are ambiguous here and are therefore banned. Each line names the
 banned word and the word to use instead.
 -->
 
-- **Book** — ambiguous here (a book is a work; the Catalog answers editions of
-  it). Use **Volume** for what a search returns. The word survives in the
-  product's name and in the `books` namespace root, and nowhere else.
-- **Result**, **Item**, **Hit** — ambiguous (they name a position in a
-  response, not a thing). Use **Volume**.
+- **Book** — ambiguous as a name for **what a search returns** (a book is a
+  work; the Catalog answers editions of it). Use **Volume** for that, always.
+  The word itself is not banned outright, and the uses that remain are
+  deliberate: the product's name, the `books` namespace root, the canonical
+  term **Book search** above and the identifiers derived from it
+  (`book-search`, the `:book-search` option, `books.stub-book-search`), and
+  `GOOGLE_BOOKS_API_KEY` / the `:books-api-key` option, which name a third
+  party's API and are therefore its spelling rather than ours.
+- **Result**, **Item**, **Hit** — ambiguous as a name for **a thing the Catalog
+  describes**: they name a position in a response. Use **Volume** for that.
+  - _Carve-out_: "results" is the right word for the **region of the search
+    page** that holds Volumes, and for that region's states — `#results`,
+    `data-state="results"`, and `books.views/search-results`. A region in a
+    response is precisely what the word means, so this is not the ambiguity the
+    ban is about: the ban is on calling a Volume a result, never on naming the
+    box the Volumes are rendered into.
