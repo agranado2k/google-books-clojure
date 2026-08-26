@@ -96,9 +96,25 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 #   Error semantics (the shared error model)|^lib/errors/
 #   Agent-facing prompt surfaces|^prompts/|^skills/
 # -----------------------------------------------------------------------------
+# The HTTP surface is everything an anonymous caller can observe, which is wider
+# than the two namespaces that answer requests:
+#   handler.clj   the routes, the status codes, the cache and Vary headers
+#   views.clj     the rendered pages and the htmx attribute vocabulary
+#   assets.clj    the served /js/htmx-<version>.min.js URL and its digest pin —
+#                 changing the version changes a URL the whole internet may hold
+#                 a year-long immutable cache entry for
+#   catalog.clj   the port's outcome/reason vocabulary; every rendered state on
+#                 the search page keys on it, so a new reason is a new page state
+#   resources/public/js/  the bytes actually served to every visitor
+#
+# The env contract is its own surface: books/server.clj is the ONE place
+# GOOGLE_BOOKS_API_KEY, DATABASE_URL, DB_OPTIONAL and PORT are read, so a change
+# there is a change to what an operator must set for a deploy to come up — a
+# contract with the platform, invisible in any diff of the app's own routes.
 BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/|^\.github/
 Architecture decisions|^docs/adr/
-HTTP surface (routes & rendered pages)|^src/books/handler\.clj$|^src/books/views\.clj$
+HTTP surface (routes, rendered pages, served assets)|^src/books/handler\.clj$|^src/books/views\.clj$|^src/books/assets\.clj$|^src/books/catalog\.clj$|^resources/public/js/
+Configuration (env contract)|^src/books/server\.clj$
 Persistence (schema + migrations)|^resources/migrations/'
 
 # Executable specification files. behavior-delta flags these when EDITED inside a
