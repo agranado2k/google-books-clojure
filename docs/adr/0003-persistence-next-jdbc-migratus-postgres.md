@@ -1,9 +1,13 @@
 # ADR-0003: Persist on Railway PostgreSQL via next.jdbc and Migratus, migrating at boot
 
-- **Status**: Accepted, amended 2026-08-10 (clause 2 now binds the Books API key too)
+- **Status**: Accepted
 - **Date**: 2026-08-09
 - **Deciders**: Arthur Granado (with agent research and a security review of the first implementation)
 - **Supersedes / amends**: —
+- **Amended**: 2026-08-10 — clause 2 binds the Google Books API key as well as
+  the database: no credential of any kind goes into a URL string (see the
+  amendment note inside clause 2). The decision is unchanged; its scope is
+  stated for a second kind of credential.
 - **Superseded by**: —
 
 ## Context and problem statement
