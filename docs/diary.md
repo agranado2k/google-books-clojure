@@ -25,7 +25,8 @@ is in flight. Do not restate the README.
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
 | **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
-| **Active worktrees** | None. |
+| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer 0.3.0 → 0.4.0 update, open as a PR. |
+| **Kit / shared layer** | 0.4.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
 
 ### Open questions / unresolved decisions
@@ -195,3 +196,47 @@ last step — connecting the GitHub repo in the Railway dashboard so pushes to
 `main` deploy — was never done, and no deploy has run since. The database and
 its `DATABASE_URL` reference variable are provisioned and Online, so the merged
 code should come up healthy once a deploy happens.
+
+### 2026-08-26 — Shared layer moved 0.3.0 → 0.4.0, and the half that is not shared layer
+
+Two commits on `chore/kit-0-4-0`, deliberately separate.
+
+**Part 1 — the shared layer.** `scripts/agents.lib.sh` (the capability-tier
+resolver) joined the manifest and `UPDATING.md` itself changed; the shared
+invariants did not move between the two releases. Step 3's drift check printed
+`clean` for all eleven 0.3.0 files, so step 5 was a plain overwrite with nothing
+to merge — the cheap case, and it was cheap because nobody had edited a file
+that was not theirs to edit.
+
+**Part 2 — everything the manifest does not list, which is where this release's
+value actually sits.** `/implement` now ends at an open PR carrying an
+independent review rather than at a local commit; `/to-tickets` stamps a
+capability tier on every ticket and surfaces the tier mix at its quiz;
+`/improve-codebase-architecture` and `/dogfood` are new. The manual gained a
+Capability tiers section, and `constitution/local-product.md` now declares the
+one surface and two personas `/dogfood` is allowed to drive.
+
+Three things worth carrying forward.
+
+**The tier → model mapping is ours and is written down.** `planner` and
+`reviewer` run on `opus`, `implementer` on `sonnet`, `mechanical` on `haiku`.
+Reviewer above implementer is the load-bearing part: `/implement` requires its
+review to run on a different tier than the code's author, and a cheap verdict
+fails silently rather than loudly. The values are Claude Code's family aliases
+rather than dated API identifiers because that is what the harness's spawn enum
+accepts — and because an alias is the one form of this value that does not rot.
+
+**Two kit workflow templates were deliberately not taken.** `UPDATING.md` §9c
+classifies `docs-gate.yml` and `tdd-pairing.yml` as NEW, because it can only ask
+whether we have a file at that path — not whether we ever did. We did, at
+v0.3.0, and ticket #12 folded both into `ci.yml` on purpose. Following the
+recipe literally would have silently re-added two workflows duplicating jobs CI
+already runs. Recorded here so the next update does not re-derive it.
+
+**The 0.3.0 recipe cannot tell you it has been superseded.** Part 1 ends at "run
+the gate, commit, note it in the diary" — and by then step 5 has already
+replaced `UPDATING.md` with a version that has a whole second half. A consumer
+who follows the file they started reading lands on 0.4.0 with the resolver on
+disk, no config, no callers, a green gate, and no signal that anything is
+missing. Re-read `UPDATING.md` after step 5 of any future update, before
+believing you are done.
