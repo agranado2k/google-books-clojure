@@ -321,17 +321,38 @@
       (is (= 200 (:status response)))
       (is (str/starts-with? (get-in response [:headers "Content-Type"]) "text/html")))))
 
+(def ^:private search-representations
+  "The three answers /search gives at one URL, for the header tests to sweep."
+  [["the page" {}]
+   ["the fragment" {:htmx? true}]
+   ["the prompt" {:htmx? true :query ""}]])
+
 (deftest search-tells-caches-that-one-url-serves-two-representations
   ;; /search answers a whole page or a bare fragment at ONE URL, chosen by a
   ;; request header. A shared cache that stored the fragment and replayed it to
   ;; a document navigation would serve a page with no <html> and no header.
-  (doseq [[label opts] [["the page" {}]
-                        ["the fragment" {:htmx? true}]
-                        ["the prompt" {:htmx? true :query ""}]]]
+  (doseq [[label opts] search-representations]
     (testing label
       (let [response (search (stub/found [stub/sparse]) (get opts :query "title=clojure") opts)]
-        (is (= "HX-Request" (get-in response [:headers "Vary"])))
-        (is (= "no-store" (get-in response [:headers "Cache-Control"])))))))
+        (is (= "HX-Request" (get-in response [:headers "Vary"])))))))
+
+(deftest search-results-are-revalidated-rather-than-refused-storage
+  ;; `no-store` was the first answer here and it was the wrong one: Chrome
+  ;; blocklists any main-frame response carrying it from the back/forward cache,
+  ;; and Firefox does the same. So pressing Back onto a /search entry forced a
+  ;; full re-navigation and a fresh live catalog call — partially undoing the
+  ;; Back-button fix on the very path (a no-JS full page GET) that fix exists to
+  ;; protect.
+  ;;
+  ;; `private, no-cache` keeps what `no-store` was actually bought for: `private`
+  ;; keeps a shared cache from holding it at all, and `no-cache` forces
+  ;; revalidation on every reuse — and since this response sends no validator,
+  ;; revalidation can only mean re-fetching. What it does not do is disqualify
+  ;; the page from bfcache, which is a browser-internal store, not an HTTP one.
+  (doseq [[label opts] search-representations]
+    (testing label
+      (let [response (search (stub/found [stub/sparse]) (get opts :query "title=clojure") opts)]
+        (is (= "private, no-cache" (get-in response [:headers "Cache-Control"])))))))
 
 (deftest the-landing-page-points-at-the-search-page
   (testing "the roadmap card that announces the slice is itself the link to it"

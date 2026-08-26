@@ -67,11 +67,23 @@
    "Vary" "HX-Request"
    ;; …and `Vary` alone is not enough to rely on: intermediaries have a long
    ;; history of normalising away headers they do not recognise, and this one
-   ;; is not a standard content-negotiation header. `no-store` rather than
-   ;; `private, no-cache` because there is nothing to gain from storing it: a
-   ;; search result is a projection of a third-party catalog that changes on
-   ;; its own schedule, and re-running the search is the cheap, correct answer.
-   "Cache-Control" "no-store"})
+   ;; is not a standard content-negotiation header. So the belt as well as the
+   ;; braces — but `private, no-cache`, NOT `no-store`.
+   ;;
+   ;; `no-store` was the first answer here and it cost more than it bought.
+   ;; Chrome blocklists any main-frame response carrying it from the
+   ;; back/forward cache, and Firefox does the same, so pressing Back onto a
+   ;; /search entry forced a full re-navigation and a fresh live catalog call —
+   ;; partially undoing the Back-button fix on the very path (the no-JS full
+   ;; page GET) that fix exists to protect.
+   ;;
+   ;; `private, no-cache` keeps everything `no-store` was wanted for: `private`
+   ;; bars a shared cache from holding it at all, and `no-cache` forces
+   ;; revalidation before any reuse — and this response sends no validator, so
+   ;; revalidating can only mean fetching it again. bfcache is a browser-
+   ;; internal snapshot rather than an HTTP cache, and this directive does not
+   ;; disqualify the page from it.
+   "Cache-Control" "private, no-cache"})
 
 (defn- search
   "GET /search, answering the same content two ways: the results fragment when
