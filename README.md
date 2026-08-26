@@ -78,12 +78,14 @@ under `DB_OPTIONAL=true`.
 | --- | --- | --- | --- |
 | `DATABASE_URL` | yes, unless `DB_OPTIONAL=true` | — | The database, in libpq form: `postgresql://user:password@host:port/dbname` (`postgres://` is accepted too). Query parameters — `sslmode` included — are passed to the driver unchanged. Railway injects this. Migrations run at boot against it, and a failed migration or an unreachable database **crashes the boot** deliberately (ADR-0003). |
 | `DB_OPTIONAL` | no | `false` | `true` makes running without a `DATABASE_URL` a healthy state. Anything else, including unset, makes a missing `DATABASE_URL` a 503 — so a deploy that silently loses the variable fails its health check. |
-| `GOOGLE_BOOKS_API_KEY` | no, but search does nothing without it | — | The Google Books API key the search page uses. **A secret**: it travels in the query string of every catalog request, so it is never logged, never rendered, and redacted out of any diagnostic built from that URL. Absent or blank is not a boot failure — every search then answers "search is not configured here" and the page says so. |
+| `GOOGLE_BOOKS_API_KEY` | no, but search does nothing without it | — | The Google Books API key the search page uses. **A secret**: it travels in the `X-goog-api-key` request header of every catalog request, never in the URL (ADR-0003 clause 2, as amended), so the search URL is safe to log, render or put in an exception message; redirects are never followed, and any diagnostic built from text this repo did not construct is redacted. Absent or blank is not a boot failure — every search then answers "search is not configured here" and the page says so. |
 | `PORT` | no | `3000` | The HTTP port; the server binds `0.0.0.0`. Railway injects this. |
 | `TEST_DATABASE_URL` | no | `postgresql://postgres:test@localhost:5544/postgres` | Tests only — where the suite finds its Postgres. |
 
-Credentials reach the driver as db-spec map values and are never assembled into
-a JDBC URL string; that is a binding rule, not a preference (ADR-0003 clause 2).
+**No credential — database or API key — goes into a URL string.** Database
+credentials reach the driver as db-spec map values; the Books API key is a
+request header. That is a binding rule, not a preference (ADR-0003 clause 2,
+amended 2026-08-10 to cover the API key as well as the database).
 
 ## How this repo is run
 
