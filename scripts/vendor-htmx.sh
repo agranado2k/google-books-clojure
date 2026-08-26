@@ -1,7 +1,13 @@
 #!/bin/sh
 # vendor-htmx.sh — fetch the pinned htmx release into resources/public/js/.
 #
-# Usage:  scripts/vendor-htmx.sh
+# Usage:  scripts/vendor-htmx.sh          (no arguments — any are refused)
+#
+# THIS SCRIPT WRITES. It fetches and OVERWRITES the committed htmx file; there
+# is no read-only mode. It used to be invoked with `--verify` and never read
+# `$@`, so that invocation quietly did the fetch-and-overwrite instead of the
+# check its name promised. Unknown arguments are now refused rather than
+# ignored — a flag that does nothing is worse than a flag that does not exist.
 #
 # WHY THE FILE IS COMMITTED. ADR-0004 rejected a CDN for CSS; a third-party
 # <script> is the same bet with a bigger payout for whoever wins it, so htmx is
@@ -27,6 +33,17 @@
 # this script, and commit the new file alongside the deleted old one. The suite
 # fails until the bytes and the pin agree.
 set -eu
+
+# Arguments are refused, not ignored. See "THIS SCRIPT WRITES" above.
+if [ "$#" -ne 0 ]; then
+	echo "vendor-htmx.sh: unexpected argument '$1' — this script takes none." >&2
+	echo "  Usage: scripts/vendor-htmx.sh" >&2
+	echo "  It FETCHES and OVERWRITES resources/public/js/htmx-<version>.min.js" >&2
+	echo "  from the pins in src/books/assets.clj. There is no read-only mode;" >&2
+	echo "  the standing check on the committed bytes is books.assets-test." >&2
+	exit 2
+fi
+
 cd "$(dirname "$0")/.."
 
 pins="src/books/assets.clj"
