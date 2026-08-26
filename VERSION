@@ -16,6 +16,7 @@
 #   scripts/docs-conformance/local-vocabulary.mjs  your product's vocabulary
 #   scripts/docs-conformance/test/                 fixture tests; extend freely
 #   scripts/guards.config.sh                       the guards' view of your layout
+#   scripts/agents.config.sh                       tier -> model, your provider's
 #
 # Edit those freely — the whole point of stamping a template is that the copy
 # is then yours.
@@ -38,17 +39,34 @@
 # scripts/check.sh now requires AGENTS.md as the root manual, and the
 # claude-md-refs validator defaults to it and gained the `shim-invalid` rule for
 # the tool entry points beside it. No file joined or left the layer.
-shared-layer: 0.3.0
+# 0.4.0 — feedback wave 1: scripts/agents.lib.sh (the capability-tier resolver)
+# joined the layer, and /implement gained the Deliver phase (push → PR →
+# independent review; skills are not manifest-listed, but the shared invariants
+# they cite are unchanged). UPDATING.md changed content too, and materially: it
+# now has a SECOND half covering everything this manifest does NOT list. That
+# was not cosmetic — this release is the first one whose value sits mostly
+# outside the shared layer, so a consumer following the old recipe would have
+# taken the resolver above and nothing that reads or calls it.
+shared-layer: 0.4.0
 
 # NOT shared layer, and deliberately so: scripts/guards.config.sh. It is the
 # only file the guards read policy from, and its whole purpose is to be edited
 # locally. Keeping mechanism shared and policy local is what lets the guard
 # scripts stay byte-identical to the kit's copies.
+#
+# Same split, same reasoning, for capability tiers: scripts/agents.lib.sh is
+# shared (one resolver, fixable once for everyone, and the four tier names are
+# the shared word between the manual, the skills and the config) while
+# scripts/agents.config.sh is NOT (it maps those tiers onto one provider's model
+# identifiers — the fastest-rotting, least portable data in the repo). A kit
+# that shared the mapping would be shipping a standing instruction with a timer
+# on it.
 
 files:
   constitution/shared-invariants.md
   UPDATING.md
   scripts/guards.lib.sh
+  scripts/agents.lib.sh
   scripts/tdd-pairing-guard.sh
   scripts/tdd-pairing-guard-ci.sh
   scripts/behavior-delta.sh
