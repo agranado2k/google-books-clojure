@@ -61,23 +61,36 @@ pin_of() {
 HTMX_VERSION=$(pin_of htmx-version)
 HTMX_SHA256=$(pin_of htmx-sha256)
 
+# MAJOR.MINOR.PATCH, digits and exactly two dots — nothing else. The version
+# becomes both a path segment and a URL segment below, and `[0-9]*.[0-9]*.[0-9]*`
+# on its own is not the check it looks like: a glob `*` matches a slash as
+# happily as a digit, so `2.0.10/../..` satisfies it. Rejecting every character
+# outside [0-9.] first is what makes the shape check mean the shape.
 case "$HTMX_VERSION" in
-[0-9]*.[0-9]*.[0-9]*) ;;
-*)
-	echo "vendor-htmx.sh: could not read htmx-version from ${pins}." >&2
+*[!0-9.]*) version_ok=no ;;
+[0-9]*.[0-9]*.[0-9]*.*) version_ok=no ;;
+[0-9]*.[0-9]*.[0-9]*) version_ok=yes ;;
+*) version_ok=no ;;
+esac
+if [ "$version_ok" != yes ]; then
+	echo "vendor-htmx.sh: could not read a MAJOR.MINOR.PATCH htmx-version from ${pins}." >&2
 	echo "  found: '${HTMX_VERSION}' — is the def still one string on its own line?" >&2
 	exit 3
-	;;
-esac
+fi
 
+# 64 lowercase hex digits. Sixty-four of ANY character was the old test, which
+# is not what a SHA-256 is; the digest comparison below is the real gate, but a
+# guard whose comment claims strictness should be strict.
 case "$HTMX_SHA256" in
-????????????????????????????????????????????????????????????????) ;;
-*)
-	echo "vendor-htmx.sh: could not read a 64-character htmx-sha256 from ${pins}." >&2
+*[!0-9a-f]*) sha_ok=no ;;
+????????????????????????????????????????????????????????????????) sha_ok=yes ;;
+*) sha_ok=no ;;
+esac
+if [ "$sha_ok" != yes ]; then
+	echo "vendor-htmx.sh: could not read a 64-digit hex htmx-sha256 from ${pins}." >&2
 	echo "  found: '${HTMX_SHA256}'" >&2
 	exit 3
-	;;
-esac
+fi
 
 target="resources/public/js/htmx-${HTMX_VERSION}.min.js"
 url="https://unpkg.com/htmx.org@${HTMX_VERSION}/dist/htmx.min.js"
