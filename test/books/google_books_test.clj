@@ -8,7 +8,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [ring.adapter.jetty :as jetty])
-  (:import (java.nio.charset StandardCharsets)))
+  (:import (java.net URLDecoder)
+           (java.nio.charset StandardCharsets)))
 
 (def ^:private api-key "test-key-not-a-real-one")
 
@@ -42,22 +43,37 @@
   (testing "a term cannot smuggle in another query parameter"
     (is (not (str/includes? (google/q-param {:title "x&key=stolen"}) "&")))))
 
-(deftest search-url-carries-the-cap-the-fields-and-no-credential
-  (let [url (google/search-url {:title "Clojure"})]
-    (testing "the volumes endpoint, over TLS"
-      (is (str/starts-with? url "https://www.googleapis.com/books/v1/volumes?")))
-    (testing "no credential is in the URL at all — ADR-0003 clause 2"
-      ;; The key now travels in a request header, so this string is safe to
-      ;; log, render, and put in an exception message.
+(defn- param
+  "The decoded value of one query parameter of the search URL."
+  [name query]
+  (-> (re-find (re-pattern (str name "=([^&]*)")) (google/search-url query))
+      second
+      (URLDecoder/decode StandardCharsets/UTF_8)))
+
+(deftest the-search-url-is-the-volumes-endpoint-over-tls
+  (is (str/starts-with? (google/search-url {:title "Clojure"})
+                        "https://www.googleapis.com/books/v1/volumes?")))
+
+(deftest the-search-url-carries-no-credential
+  (testing "ADR-0003 clause 2: the key travels in a request header, not a URL"
+    ;; Which is what makes this string safe to log, render, and put in an
+    ;; exception message.
+    (let [url (google/search-url {:title "Clojure"})]
       (is (not (str/includes? url api-key)))
-      (is (not (str/includes? url "key="))))
-    (testing "the result count is capped well under the API's own limit of 40"
-      (is (str/includes? url "maxResults=20")))
-    (testing "fields asks for exactly what the page renders, and no more"
-      (let [fields (second (re-find #"fields=([^&]*)" url))]
-        (doseq [rendered ["id" "title" "authors" "publishedDate" "description" "thumbnail"]]
-          (is (str/includes? fields rendered)
-              (str "fields must request " rendered)))))))
+      (is (not (str/includes? url "key="))))))
+
+(deftest the-search-url-caps-the-result-count
+  (testing "one page of Volumes, well under the API's own limit of 40"
+    (is (= "20" (param "maxResults" {:title "Clojure"})))))
+
+(deftest the-search-url-asks-for-exactly-the-rendered-fields-and-no-more
+  ;; "and no more" was always the claim; substring-checking the six names could
+  ;; not support it — a projection that ALSO asked for every other volumeInfo
+  ;; field would have satisfied all six checks and shipped a payload nothing
+  ;; renders. The whole decoded value is the assertion, so adding a field now
+  ;; fails here and has to be justified by something on the card.
+  (is (= "items(id,volumeInfo(title,authors,publishedDate,description,imageLinks/thumbnail))"
+         (param "fields" {:title "Clojure"}))))
 
 (deftest the-adapter-fetches-exactly-the-url-it-builds
   ;; Every other double here discards its argument, so nothing pinned the URL
@@ -173,8 +189,10 @@
           adapter (google/book-search {:api-key nil :fetch (fn [_ _] (reset! called true) nil)})]
       (is (= {:outcome :error :reason :not-configured}
              (adapter {:title "Clojure"})))
-      (is (false? @called) "no key means no call")))
-  (testing "a blank key counts as absent"
+      (is (false? @called) "no key means no call"))))
+
+(deftest a-blank-key-counts-as-absent
+  (testing "a variable set to whitespace is an unconfigured deploy, not a credential"
     (is (= {:outcome :error :reason :not-configured}
            ((google/book-search {:api-key "   "}) {:title "Clojure"})))))
 
@@ -342,23 +360,28 @@
 ;; The key is a secret, including on the way out
 ;; ---------------------------------------------------------------------------
 
-(deftest failures-never-carry-the-key
+(deftest a-diagnostic-built-from-the-search-url-cannot-carry-the-key
   (testing "the primary control: the search URL simply has no credential in it"
     (let [message (str "GET " (google/search-url {:title "Clojure"}) " failed")]
-      (is (not (str/includes? message api-key))
-          "a diagnostic built from the URL cannot leak a key the URL does not hold")))
-  (testing "redaction is the second line, for a message built from something else"
+      (is (not (str/includes? message api-key))))))
+
+(deftest redact-removes-the-key-from-a-message-built-from-something-else
+  (testing "the second line, for text this repo did not construct"
     (let [message (str "connect failed for " api-key)]
       (is (not (str/includes? (google/redact message api-key) api-key)))
-      (is (str/includes? (google/redact message api-key) "[redacted]"))
-      (testing "redaction with no secret to redact is a no-op, never an NPE"
-        (is (= message (google/redact message nil)))
-        (is (= message (google/redact message ""))))))
-  (testing "a thrown fault is reported with the key stripped out of it either way"
-    (let [err (java.io.StringWriter.)
-          boom (fn [_ key] (throw (ex-info (str "connect failed, credential was " key) {})))]
-      (binding [*err* err]
-        ((adapter boom) {:title "x"}))
-      (is (not (str/includes? (str err) api-key))
-          "the key must never reach a log line")
-      (is (pos? (count (str err))) "…but the fault is still reported"))))
+      (is (str/includes? (google/redact message api-key) "[redacted]")))))
+
+(deftest redact-with-no-secret-to-redact-is-a-no-op
+  (testing "an unconfigured deploy still reports its faults, rather than NPEing"
+    (let [message "connect failed"]
+      (is (= message (google/redact message nil)))
+      (is (= message (google/redact message ""))))))
+
+(deftest a-thrown-fault-is-reported-with-the-key-stripped-out-of-it
+  (let [err (java.io.StringWriter.)
+        boom (fn [_ key] (throw (ex-info (str "connect failed, credential was " key) {})))]
+    (binding [*err* err]
+      ((adapter boom) {:title "x"}))
+    (is (not (str/includes? (str err) api-key))
+        "the key must never reach a log line")
+    (is (pos? (count (str err))) "…but the fault is still reported")))

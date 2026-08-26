@@ -172,16 +172,19 @@
     (testing "nothing is cut short with an ellipsis of our own"
       (is (not (str/includes? rendered "…"))))))
 
-(deftest a-search-by-author-and-by-both-reaches-the-port-intact
-  (testing "author only"
+(deftest a-search-by-author-alone-reaches-the-port-intact
+  (testing "an empty title is dropped rather than searched for"
     (let [seen (atom [])]
       (search (stub/found [] seen) "title=&author=hickey" {:htmx? true})
-      (is (= [{:author "hickey"}] @seen))))
-  (testing "both fields"
-    (let [seen (atom [])]
-      (search (stub/found [] seen) "title=clojure&author=hickey" {:htmx? true})
-      (is (= [{:title "clojure" :author "hickey"}] @seen))))
-  (testing "a query that needs decoding arrives decoded"
+      (is (= [{:author "hickey"}] @seen)))))
+
+(deftest a-search-by-title-and-author-reaches-the-port-intact
+  (let [seen (atom [])]
+    (search (stub/found [] seen) "title=clojure&author=hickey" {:htmx? true})
+    (is (= [{:title "clojure" :author "hickey"}] @seen))))
+
+(deftest a-percent-encoded-query-reaches-the-port-decoded
+  (testing "the port is handed what the reader typed, not what the URL spelled"
     (let [seen (atom [])]
       (search (stub/found [] seen) "title=brave%20new%20world" {:htmx? true})
       (is (= [{:title "brave new world"}] @seen)))))
