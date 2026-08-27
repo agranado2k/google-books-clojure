@@ -123,7 +123,44 @@
 # that a re-pin is a content change: its worked-example prose and transcripts
 # moved 0.8.0 -> 0.9.0 with the release, nothing else. The recipe itself is
 # untouched.
-shared-layer: 0.9.0
+# 0.10.0 — the recipe stopped destroying consumer files. No file joined or left
+# the layer; ONE shared file changed content, and materially: UPDATING.md. Both
+# defects were found by the SECOND real consumer update (0.4.0 -> 0.9.0), and
+# both are data loss, so a consumer on any release should take this one before
+# running an update.
+#   The first is a SHAPE, not a line. `kit show "$REF:$path" >"$mine"` was the
+# recipe's idiom for taking the release's copy of a file, and the shell
+# truncates `$mine` BEFORE kit is started — so a path that is absent at that ref
+# leaves zero bytes and a `fatal:` on stderr. 9d is where it was caught: it
+# named `scripts/docs-conformance/local-vocabulary.mjs`, which the kit ships
+# only as a `.template`, asked whether the path existed at FROM_REF, and read
+# that one `no` as "then it is new at TO_REF". Measured on a real consumer:
+# 1807 bytes -> 0. Seven other sites carried the same shape. Step 0 now defines
+# `kit_take`, which fetches to a temp file and writes only on success, and every
+# take in the recipe goes through it. 9d additionally asks about BOTH refs and
+# has a third verdict, STAMPED, for the half of its list the kit holds only as
+# a `.template`.
+#   The second is the shell. The recipe never declared one, and zsh — macOS's
+# default — applies HISTORY MODIFIERS to `$var:x` inside double quotes, so
+# `"$TO_REF:constitution/…"` was `$TO_REF` with `:c` applied plus the literal
+# `onstitution/…`. Four lines carried a bare letter after the colon; git got a
+# ref that resolves to nothing, one local article went 45 bytes -> 0, and the
+# `cmp` above it answered YOURS having compared against empty input. Every ref
+# expansion is now braced or followed by a `$`, "Before you start" names POSIX
+# sh, and tests/docs-demo.sh greps the whole document for the shape on every
+# run and drives 9b through a real zsh.
+#   Three smaller recipe fixes ride along: 9d routes `.mjs` configs to a read of
+# the diff rather than a key-set extractor that cannot parse them (and the
+# extractor now refuses to answer rather than reporting a vacuous "nothing
+# missing"); step 8 says that the kit's own self-hosted AGENTS.md, shims,
+# README and docs are never a consumer's base, since those ARE paths a consumer
+# has; and "Before you start" carries the standing "re-read this file after
+# step 5" rule, which the step-5 NOTE cannot deliver to the consumer who most
+# needs it because that consumer is on the old recipe.
+#   What a consumer takes: a re-read of UPDATING.md, and one habit change — the
+# takes in Part 2 are `kit_take` calls now, which needs step 0's helper in
+# scope. Nothing else of theirs changes. The wave has no non-manifest half.
+shared-layer: 0.10.0
 
 # NOT shared layer, and deliberately so: scripts/guards.config.sh. It is the
 # only file the guards read policy from, and its whole purpose is to be edited
