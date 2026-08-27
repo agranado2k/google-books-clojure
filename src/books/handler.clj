@@ -459,15 +459,21 @@
   sends the strict same-origin policy rather than a policy naming a vendor it
   never contacts.
 
-  Two directives are looser than the rest, and both are Clerk's requirement
-  rather than this app's taste (see ADR-0005): `style-src 'unsafe-inline'`,
-  which Clerk's components need because they style themselves at runtime, and
-  `script-src 'unsafe-inline'`. `'unsafe-eval'` is documented by Clerk as a
-  Next.js development need and is NOT sent here."
+  ONE directive is looser than the rest, and it is Clerk's requirement rather
+  than this app's taste (see ADR-0005): `style-src 'unsafe-inline'`, which
+  Clerk's components need because they style themselves at runtime with
+  Emotion — without it the sign-in form renders completely unstyled, and
+  ClerkJS reports success while it happens.
+
+  `script-src` carries NO `'unsafe-inline'`: Clerk documents that only for
+  Next.js App Router's inline bootstrap, and this app emits no inline script of
+  its own. Verified against a live instance — ClerkJS loads and mounts under a
+  policy without it, and neither bundle contains `eval` or `new Function`.
+  `'unsafe-eval'` is a Next.js development need and is NOT sent here."
   [publishable-key]
   (let [{:keys [script-src connect-src img-src frame-src]} (clerk/csp-sources publishable-key)]
     (->> [(directive "default-src" ["'self'"])
-          (directive "script-src" (into ["'self'" "'unsafe-inline'"] script-src))
+          (directive "script-src" (into ["'self'"] script-src))
           (directive "connect-src" (into ["'self'"] connect-src))
           ;; 'self' for the layout's own assets, the Catalog's origins for the
           ;; Volume covers, and Clerk's for an avatar in the user button.
@@ -476,6 +482,8 @@
           (directive "worker-src" ["'self'" "blob:"])
           (directive "frame-src" (into ["'self'"] frame-src))
           (directive "form-action" ["'self'"])
+          (directive "base-uri" ["'self'"])
+          (directive "object-src" ["'none'"])
           ;; Nothing here is ever framed: this app has no embeddable surface,
           ;; and the sign-in flow navigates rather than embeds.
           (directive "frame-ancestors" ["'none'"])]
@@ -644,7 +652,9 @@
         ;; single value every page and the closed gate read to decide whether
         ;; sign-in exists here at all. A key that does not decode is no key.
         clerk (when-let [url (clerk/script-url publishable-key)]
-                {:publishable-key publishable-key :script-url url})
+                {:publishable-key publishable-key
+                 :script-url url
+                 :ui-script-url (clerk/ui-script-url publishable-key)})
         landing-handler (landing clerk)
         sign-in-handler (sign-in clerk)
         search-handler (search (or book-search catalog/not-configured) clerk datasource)

@@ -96,8 +96,24 @@
       (is (contains? (directive current "connect-src") "https://*.protect.clerk.com:*")))
     (testing "Clerk styles its components at runtime, which needs inline styles"
       (is (contains? (directive current "style-src") "'unsafe-inline'")))
+    (testing "and the telemetry host ClerkJS posts to on load"
+      (is (contains? (directive current "connect-src") "https://clerk-telemetry.com")))
     (testing "and mounts a worker from a blob URL"
       (is (contains? (directive current "worker-src") "blob:")))))
+
+(deftest the-policy-does-not-allow-inline-script
+  ;; Clerk documents `script-src 'unsafe-inline'` only for Next.js App Router's
+  ;; inline bootstrap. This app emits no inline script of its own, and ClerkJS
+  ;; was verified to load and mount under a policy without it.
+  (testing "script-src never admits inline script, with or without Clerk"
+    (is (not (contains? (directive (policy) "script-src") "'unsafe-inline'")))
+    (is (not (contains? (directive (policy (app test-jwt/publishable-key)) "script-src")
+                        "'unsafe-inline'")))))
+
+(deftest the-policy-forbids-plugins-and-base-tag-hijacking
+  (testing "object-src is closed and base-uri cannot be repointed"
+    (is (contains? (directive (policy) "object-src") "'none'"))
+    (is (contains? (directive (policy) "base-uri") "'self'"))))
 
 (deftest the-policy-does-not-allow-eval
   ;; Clerk documents 'unsafe-eval' as a Next.js DEVELOPMENT need. This is
@@ -144,8 +160,8 @@
     (testing "and this repo's own browser code is served from this origin"
       (is (str/includes? body "/app/session.js")))
     (testing "no page carries an inline <script> block"
-      ;; Every script on the page is a `src`, which is what would let
-      ;; `script-src 'unsafe-inline'` be dropped the day Clerk stops needing it.
+      ;; Every script on the page is a `src`, which is what lets the policy
+      ;; carry no `script-src 'unsafe-inline'` at all.
       (is (nil? (re-find #"<script(?![^>]*\ssrc=)" body))))))
 
 (deftest the-script-url-is-nothing-without-an-instance
