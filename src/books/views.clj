@@ -54,6 +54,10 @@
   surrounding band rather than to the link."
   "underline decoration-stone-300 underline-offset-4")
 
+(def ^:private nav-link
+  "One item in the header's navigation."
+  (str "text-sm font-medium text-stone-600 " underline-link " hover:text-stone-900"))
+
 ;; ---------------------------------------------------------------------------
 ;; The roadmap: content as data, rendered by one function.
 ;; ---------------------------------------------------------------------------
@@ -74,8 +78,9 @@
     :blurb "Save the books you care about and find them again in one place."
     :status :next}
    {:title "Sign-in"
-    :blurb "Your bookmarks, tied to you — an account so they follow you around."
-    :status :later}])
+    :blurb "Sign in with Google — an account so your library follows you around."
+    :status :now
+    :href "/sign-in"}])
 
 (defn- roadmap-card [{:keys [title blurb status href]}]
   (let [{:keys [label] status-class :class} (statuses status)]
@@ -100,11 +105,13 @@
              :aria-hidden "true"} "B"]
      brand]
     [:nav {:class "flex items-center gap-4"}
-     [:a {:href "/search"
-          :class (classes "text-sm font-medium text-stone-600" underline-link "hover:text-stone-900")}
-      "Search"]
-     [:span {:class "hidden rounded-full border border-stone-300 px-3 py-1 text-xs font-medium text-stone-500 sm:inline"}
-      "Sign-in coming soon"]]]])
+     [:a {:href "/search" :class nav-link} "Search"]
+     ;; Server-rendered as a plain link, so a signed-out Reader — and a Reader
+     ;; whose browser never ran ClerkJS — still has a way in. ClerkJS replaces
+     ;; the contents with its own account menu once it knows there is a session;
+     ;; signing out happens in there. See resources/public/app/session.js.
+     [:div {:id "session-nav" :class "flex items-center"}
+      [:a {:href "/sign-in" :class nav-link} "Sign in"]]]]])
 
 (defn- footer []
   [:footer {:class "border-t border-stone-200"}
@@ -113,10 +120,34 @@
     [:p [:a {:href "/health" :class (classes underline-link "hover:text-stone-700")}
          "Service status"]]]])
 
+(defn- clerk-script
+  "The ClerkJS tag, or nothing when this deployment has no Clerk instance.
+
+  The one third-party script this repo serves, and the one exception to
+  ADR-0004's vendoring rule — argued out in ADR-0005. Two things make it as
+  small an exception as it can be: it is loaded from the instance's own
+  Frontend API host rather than a public CDN, and the publishable key travels
+  as an ATTRIBUTE, so the page still carries no inline script for a
+  Content-Security-Policy to have to allow."
+  [{:keys [script-url publishable-key]}]
+  (when script-url
+    [:script {:src script-url
+              :data-clerk-publishable-key publishable-key
+              :crossorigin "anonymous"
+              :defer "defer"}]))
+
 (defn layout
-  "The shared page frame: <head> with the Tailwind stylesheet, then
-  header / content area / footer. `content` is Hiccup for the <main> area."
-  [{:keys [title]} & content]
+  "The shared page frame: <head> with the Tailwind stylesheet and the scripts,
+  then header / content area / footer. `content` is Hiccup for the <main> area.
+
+  Options:
+  * `:title` — the document title;
+  * `:clerk` — `{:script-url … :publishable-key …}`, or nil where no Clerk
+    instance is configured. Neither value is a secret: the publishable key is
+    public by design, and it is the only Clerk value a page ever holds;
+  * `:data` — `data-` attributes for `<body>`. This is how the session script
+    is configured, because configuring it inline would mean an inline script."
+  [{:keys [title clerk data]} & content]
   (str
    (h/html
     (h/raw "<!DOCTYPE html>")
@@ -128,17 +159,24 @@
       [:link {:rel "stylesheet" :href "/css/app.css"}]
       ;; Vendored, digest-pinned, served from our own origin — never a CDN
       ;; (ADR-0004, amended 2026-08-10). `defer` so it never blocks the render.
-      [:script {:src assets/htmx-path :defer "defer"}]]
-     [:body {:class "flex min-h-full flex-col bg-stone-50 font-sans text-stone-900 antialiased"}
+      [:script {:src assets/htmx-path :defer "defer"}]
+      (clerk-script clerk)
+      ;; Ours, and last: both tags are deferred, so they run in document order
+      ;; and this one finds `window.Clerk` already defined.
+      [:script {:src assets/session-script-path :defer "defer"}]]
+     [:body (merge {:class "flex min-h-full flex-col bg-stone-50 font-sans text-stone-900 antialiased"}
+                   data)
       (header)
       (into [:main {:class "flex-1"}] content)
       (footer)]])))
 
 (defn landing-page
-  "The landing page: what the app does today and what is coming, no more."
-  []
+  "The landing page: what the app does today and what is coming, no more. The
+  one page that is public whatever the sign-in state."
+  [clerk]
   (layout
-   {:title (str brand " — search the catalog, bookmark the keepers")}
+   {:title (str brand " — search the catalog, bookmark the keepers")
+    :clerk clerk}
    [:section {:class (classes container "pb-16 pt-16 sm:pt-24")}
     [:p {:class (classes "mb-4" eyebrow "text-amber-700")}
      "A reading companion, in the making"]
@@ -379,12 +417,53 @@
   "The whole search page: the form (refilled from `query`) and the results
   region already in `state`, so a plain form GET or a shared URL answers with
   its results rather than an empty shell."
-  [query state]
+  [clerk query state]
   (layout
-   {:title (str "Search — " brand)}
+   {:title (str "Search — " brand)
+    :clerk clerk}
    [:section {:class (classes container "pb-24 pt-12 sm:pt-16")}
     [:p {:class (classes "mb-4" eyebrow "text-amber-700")} "Search the catalog"]
     [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
      "Find a book by title, by author, or by both."]
     [:div {:class "mt-8"} (search-form query)]
     (results-region query state)]))
+
+;; ---------------------------------------------------------------------------
+;; Sign-in, and the one page behind it.
+;;
+;; Both are rendered by the server with the content a Reader without ClerkJS
+;; would see, and ClerkJS fills in the rest. Neither renders a credential: the
+;; publishable key in `<head>` is public by design, and the session token never
+;; reaches the markup at all — it lives in a cookie and in ClerkJS's memory.
+;; ---------------------------------------------------------------------------
+
+(defn- page-heading
+  "The eyebrow-and-headline pair every page below the landing page opens with.
+  A seq rather than one element, so the two stay siblings in the section."
+  [eyebrow-text heading]
+  (list
+   [:p {:class (classes "mb-4" eyebrow "text-amber-700")} eyebrow-text]
+   [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
+    heading]))
+
+(defn sign-in-page
+  "The sign-in page. `return-to` is where the Reader was going before the gate
+  turned them around — already checked by the handler to be a path on this
+  site, because it came off the request line."
+  [clerk return-to]
+  (layout
+   {:title (str "Sign in — " brand)
+    :clerk clerk
+    :data {:data-page "sign-in" :data-return-to return-to}}
+   [:section {:class (classes container "pb-24 pt-12 sm:pt-16")}
+    (page-heading "Sign in" "Sign in with Google to open your library.")
+    (if clerk
+      ;; ClerkJS mounts its sign-in component here; until it does, this says so
+      ;; rather than showing an empty page.
+      [:div {:id "sign-in" :class "mt-8 flex justify-center"}
+       [:p {:class "text-sm text-stone-500" :role "status"} "Loading the sign-in form…"]]
+      [:div {:class (classes "mt-8" "rounded-2xl border border-dashed border-stone-300 p-8 text-center")}
+       [:p {:class "font-serif text-lg text-stone-900"} "Sign-in is not configured here."]
+       [:p {:class "mt-2 text-sm text-stone-600"}
+        "This deployment has no Clerk instance, so nobody can sign in and every"
+        " page behind sign-in stays closed."]])]))

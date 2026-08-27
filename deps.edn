@@ -8,7 +8,12 @@
         ;; 42.7.7 or later: CVE-2025-49146 affects the 42.7.4-42.7.6 range.
         org.postgresql/postgresql {:mvn/version "42.7.7"}
         metosin/jsonista {:mvn/version "0.3.13"}
-        migratus/migratus {:mvn/version "1.5.6"}}
+        migratus/migratus {:mvn/version "1.5.6"}
+        ;; RS256 verification of the Clerk session token (ADR-0005). buddy-sign
+        ;; checks the signature, `exp` and `nbf`; buddy-core turns a JWKS entry
+        ;; into a public key. `azp` is ours to check — see `books.clerk`.
+        buddy/buddy-sign {:mvn/version "3.6.1-359"}
+        buddy/buddy-core {:mvn/version "1.12.0-430"}}
  :aliases
  ;; "test-resources" carries classpath fixtures (a stylesheet the static-serving
  ;; tests can ask for without the generated resources/public/css/app.css).

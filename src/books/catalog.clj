@@ -46,6 +46,19 @@
   a full page from a final one."
   (:require [clojure.string :as str]))
 
+(def cover-origins
+  "Where a Volume's `:thumbnail` is served from.
+
+  Part of the port's contract rather than the adapter's business: the field is
+  documented above as a URL a page renders, and a page that renders remote
+  images has to admit their origin in its Content-Security-Policy. A policy
+  missing these shows every Volume with a broken cover — so the list lives
+  beside the field it describes, where a second Catalog would have to update it.
+
+  `books.google-books` upgrades every `http://` thumbnail to `https://` before it
+  becomes a Volume, which is why only the secure origins are named."
+  ["https://books.google.com" "https://books.googleusercontent.com"])
+
 (def page-size
   "How many Volumes one results page holds — the ONE owner of that number, read
   by the adapter (as the Catalog's `maxResults`) and by `page-position`, which
