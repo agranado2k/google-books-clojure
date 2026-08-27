@@ -1,6 +1,7 @@
 # ADR-0007: A mutating request proves itself with the bearer header alone
 
-- **Status**: Accepted
+- **Status**: Accepted, amended 2026-08-27 (clause 2: `/bookmarks` gained a
+  gated `GET`)
 - **Date**: 2026-08-27
 - **Deciders**: Arthur Granado (ticket [#9](https://github.com/agranado2k/google-books-clojure/issues/9), part of PRD [#1](https://github.com/agranado2k/google-books-clojure/issues/1))
 - **Supersedes / amends**: —
@@ -65,10 +66,22 @@ Chosen: **a mutating route accepts the bearer header and nothing else.**
    route rather than a condition inside the middleware.
 
 2. **`gated-paths` names each gated path with the request methods it answers.**
-   `{"/search" #{:get :head}, "/bookmarks" #{:post :delete}}`. It remains the one
-   seam `books.auth-test` walks to prove every gated path refuses an anonymous
-   request — now with the method each path actually answers, so a mutation route
-   is probed as a mutation rather than as a `GET` that would 404 and look gated.
+   It remains the one seam `books.auth-test` walks to prove every gated path
+   refuses an anonymous request — now with the method each path actually
+   answers, so a mutation route is probed as a mutation rather than as a `GET`
+   that would 404 and look gated.
+
+   > **Amendment, 2026-08-27 (ticket [#10](https://github.com/agranado2k/google-books-clojure/issues/10)).**
+   > The map was written here as
+   > `{"/search" #{:get :head}, "/bookmarks" #{:post :delete}}`. The bookmarks
+   > page is a `GET` on that same path, so the entry is now
+   > `#{:get :head :post :delete}` and the gate is wrapped **per method** rather
+   > than around the path: the read takes `page-transports`, the two writes keep
+   > `mutation-transports`. This narrows nothing and widens nothing about the
+   > decision itself — clause 7 already held that a `GET` proves itself either
+   > way — but the literal above was quoted and had gone stale. Clause 3 follows
+   > from it without an edit: `/bookmarks` now answers `GET`, so it is a valid
+   > sign-in return path, which is exactly the condition that clause states.
 
 3. **The sign-in return path is a gated path that answers `GET`.** ADR-0005
    clause 7 chose it from `gated-paths` to make an open redirect structurally
