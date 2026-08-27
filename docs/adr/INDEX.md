@@ -22,7 +22,7 @@ alone answers "what is currently binding?" without opening 40 files.
 | [0004](0004-server-rendered-ui-hiccup-tailwind.md) | Render the UI on the server with Hiccup2 and build its CSS with the standalone Tailwind CLI | Accepted 2026-08-09, amended 2026-08-10 (second scoped static root `/js/` for a vendored, digest-pinned htmx); clause 7's security-header non-goal taken up by 0005 |
 | [0005](0005-clerk-sign-in-third-party-script-and-security-headers.md) | Sign readers in with Clerk — a third-party script on every page, and the security headers that bound it | Accepted 2026-08-27 |
 | [0006](0006-bookmark-as-reader-scoped-row-with-volume-snapshot.md) | Persist a Bookmark as a Reader-scoped row carrying a Volume snapshot | Accepted 2026-08-27 |
-| [0007](0007-mutations-accept-the-bearer-header-only.md) | A mutating request proves itself with the bearer header alone | Accepted 2026-08-27 |
+| [0007](0007-mutations-accept-the-bearer-header-only.md) | A mutating request proves itself with the bearer header alone | Accepted 2026-08-27, amended 2026-08-27 (clause 2: `/bookmarks` gained a gated `GET`, and the gate is wrapped per method) |
 | [0008](0008-ci-triggers-the-railway-deploy.md) | Trigger the Railway deploy from CI, by API, naming the commit | Accepted 2026-08-27, reverses in part the 2026-08-09 diary decision below |
 ## Conventions
 

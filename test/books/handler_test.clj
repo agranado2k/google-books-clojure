@@ -112,6 +112,12 @@
       (is (re-find #"(?s)Find a book in the Google Books catalog by title, by author, or by both\..{0,120}Available now"
                    body))
       (is (str/includes? body "Save the books you care about and find them again in one place."))
+      ;; Bookmarks shipped too, so its card is no longer a promise. Bounded to
+      ;; the status paragraph's own open tag, exactly as the Search line above:
+      ;; a bare "Available now" is equally present when this card still says
+      ;; "Coming next", which is the whole regression this catches.
+      (is (re-find #"(?s)Save the books you care about and find them again in one place\..{0,120}Available now"
+                   body))
       (is (str/includes? body "an account so your library follows you around")))))
 
 (deftest landing-page-uses-the-shared-layout

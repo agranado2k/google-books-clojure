@@ -142,14 +142,15 @@
           (update :headers merge search-cache-headers)))))
 
 ;; ---------------------------------------------------------------------------
-;; Keeping a Volume.
+;; Keeping a Volume, and the page that lists what was kept.
 ;;
-;; POST adds a Bookmark, DELETE removes one, and both answer the control alone
-;; for htmx to swap over the one it submitted. The Volume travels as form
+;; POST adds a Bookmark and DELETE removes one. The Volume travels as form
 ;; fields — the snapshot ADR-0006 stores — which is why the DELETE reads them
-;; too: its answer is the *not-bookmarked* control for that Volume, and drawing
-;; it needs the same fields. htmx puts a DELETE's parameters in the URL rather
-;; than the body (`methodsThatUseUrlParams`), and `wrap-params` reads both.
+;; too. htmx puts a DELETE's parameters in the URL rather than the body
+;; (`methodsThatUseUrlParams`), and `wrap-params` reads both.
+;;
+;; GET lists them, from those stored snapshots alone: the page reaches no
+;; Catalog, which is exactly what ADR-0006 clause 4 bought.
 ;; ---------------------------------------------------------------------------
 
 (def ^:private bookmarks-path "/bookmarks")
@@ -206,16 +207,53 @@
         (do (bookmarks/save! datasource (get-in request [:reader :id]) volume)
             (toggled volume :bookmarked))))))
 
+(def ^:private removal-answers
+  "What a removal answers, named — because the two controls that make one want
+  different swaps, and only the request can say which.
+
+  `:control` is the search card's toggle flipping back over itself, and it is
+  the default: a request that asks for nothing in particular gets the answer
+  that route has always given, so a page rendered before this deploy still
+  works. `:list` is the bookmarks page redrawing its whole region, which is what
+  lets the empty state appear when the last Bookmark goes — see
+  `books.views/removal-control` for why the row cannot do it itself."
+  {"list" :list})
+
+(defn- removal-answer [params]
+  (get removal-answers (one (get params "answer")) :control))
+
+(defn- listed
+  "The Reader's whole collection, re-rendered. One query, and nothing from the
+  request but the Reader the gate verified."
+  [datasource reader-id]
+  (html (views/bookmark-list (bookmarks/for-reader datasource reader-id))))
+
 (defn- drop-volume
   "DELETE /bookmarks — the Reader stops keeping this Volume. Scoped to them, so
   it can only ever reach their own row."
   [datasource]
   (fn [request]
-    (let [volume (volume-snapshot (:params request))]
+    (let [volume (volume-snapshot (:params request))
+          reader-id (get-in request [:reader :id])]
       (if (str/blank? (:id volume))
         nameless-volume
-        (do (bookmarks/remove! datasource (get-in request [:reader :id]) (:id volume))
-            (toggled volume :not-bookmarked))))))
+        (do
+          (bookmarks/remove! datasource reader-id (:id volume))
+          (case (removal-answer (:params request))
+            :list (listed datasource reader-id)
+            :control (toggled volume :not-bookmarked)))))))
+
+(defn- bookmarks-page
+  "GET /bookmarks — everything this Reader kept, drawn from the stored snapshots.
+
+  The Reader comes from `:reader`, which the gate attached from a verified
+  session; a parameter could name anyone, and this is the one query in the app
+  that would answer a whole collection if it did."
+  [clerk datasource]
+  (fn [request]
+    (html (views/bookmarks-page clerk
+                                (bookmarks/for-reader datasource
+                                                      (get-in request [:reader :id]))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The gate.
@@ -238,7 +276,7 @@
 
   It is also what bounds the sign-in return path — see `return-path`."
   {"/search" #{:get :head}
-   "/bookmarks" #{:post :delete}})
+   "/bookmarks" #{:get :head :post :delete}})
 
 (def ^:private sign-in-path "/sign-in")
 
@@ -658,6 +696,7 @@
         landing-handler (landing clerk)
         sign-in-handler (sign-in clerk)
         search-handler (search (or book-search catalog/not-configured) clerk datasource)
+        bookmarks-handler (bookmarks-page clerk datasource)
         keep-handler (keep-volume datasource)
         drop-handler (drop-volume datasource)
         ;; A gate per route, differing only in which transports it accepts —
@@ -681,9 +720,16 @@
          ;; it, so a probe or link checker learned nothing from the refusal.
          ["/search" (gated (require-reader page-transports)
                            {:get search-handler :head search-handler})]
-         ;; A write, so the bearer header is the only credential that counts.
-         [bookmarks-path (gated (require-reader mutation-transports)
-                                {:post keep-handler :delete drop-handler})]]
+         ;; One path, two postures — so the gate is wrapped per METHOD here
+         ;; rather than around the path. Reading the list is a page and takes
+         ;; either transport; the two writes take the bearer header alone, which
+         ;; is ADR-0007's whole CSRF story and stays visible at the route it
+         ;; guards rather than becoming a condition inside the middleware.
+         [bookmarks-path
+          {:get (gated (require-reader page-transports) {:handler bookmarks-handler})
+           :head (gated (require-reader page-transports) {:handler bookmarks-handler})
+           :post (gated (require-reader mutation-transports) {:handler keep-handler})
+           :delete (gated (require-reader mutation-transports) {:handler drop-handler})}]]
         ;; Query parameters, for the search form and a DELETE's fields; cookies,
         ;; for the session token a document navigation carries. Router-scoped
         ;; rather than wrapped around everything: the static roots read neither.
