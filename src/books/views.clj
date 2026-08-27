@@ -11,8 +11,11 @@
   and that default is the project's answer to output encoding (ADR-0004 clause
   2) — catalog descriptions in particular arrive containing HTML."
   (:require [books.assets :as assets]
+            [books.catalog :as catalog]
             [clojure.string :as str]
-            [hiccup2.core :as h]))
+            [hiccup2.core :as h])
+  (:import (java.net URLEncoder)
+           (java.nio.charset StandardCharsets)))
 
 (def ^:private brand "Google Books")
 
@@ -158,8 +161,14 @@
 ;; ONE region, `#results`, in four states — a prompt, a list of Volumes, no
 ;; matches, or a failed search. Each carries a `data-state`, which is both what
 ;; the handler tests assert on and what tells a reader of this file that the
-;; states are exhaustive.
+;; states are exhaustive. The paging controls belong to the list of Volumes and
+;; to no other state: a prompt, an empty result and a failed search have no run
+;; of pages to move through.
 ;; ---------------------------------------------------------------------------
+
+(def ^:private search-path
+  "The one endpoint the form and every paging control point at."
+  "/search")
 
 (def ^:private field-label "block text-sm font-medium text-stone-700")
 
@@ -186,8 +195,8 @@
           ;; GET form, and the hx-* attributes upgrade it to a fragment swap
           ;; when htmx is running. The endpoint is the same either way.
           :method "get"
-          :action "/search"
-          :hx-get "/search"
+          :action search-path
+          :hx-get search-path
           :hx-target "#results"
           :hx-swap "outerHTML"
           :hx-push-url "true"
@@ -240,6 +249,72 @@
       [:p {:class (classes "mt-2 text-sm leading-relaxed text-stone-600" description-clamp)}
        description])]])
 
+;; ---------------------------------------------------------------------------
+;; Paging. A control is a real link first: the no-JS path moves through the
+;; same hrefs, and the hx-* attributes upgrade it to a fragment swap exactly as
+;; they upgrade the form.
+;; ---------------------------------------------------------------------------
+
+(defn- search-href
+  "The shareable URL for `query` — what a control links to, what htmx pushes
+  into history, and what `/search` reads back. Form encoding, because that is
+  what the request parameters are decoded as."
+  [query]
+  (->> [["title" (:title query)]
+        ["author" (:author query)]
+        ["start" (:start-index query)]]
+       (keep (fn [[param value]]
+               (when value
+                 (str param "=" (URLEncoder/encode (str value) StandardCharsets/UTF_8)))))
+       (str/join "&")
+       (str search-path "?")))
+
+(def ^:private paging-controls
+  "The two controls: how each reads, the relationship it states, and how far it
+  moves in PAGES. Nothing else in this file does offset arithmetic."
+  {:previous {:label "← Previous" :rel "prev" :pages -1 :class "mr-auto"}
+   :next {:label "Next →" :rel "next" :pages 1}})
+
+(def ^:private controls-at
+  "Which controls each page position offers — the one place a position becomes
+  markup. `books.catalog/page-position` decides which of the four it is."
+  {:only-page []
+   :first-page [:next]
+   :middle-page [:previous :next]
+   :last-page [:previous]})
+
+(def ^:private paging-link
+  "A control reads as a button: it moves the reader, unlike the links in the
+  page's prose."
+  (str "rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 "
+       "hover:border-amber-600 hover:text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-600/40"))
+
+(defn- paging-control [query control]
+  (let [{:keys [label rel pages] control-class :class} (paging-controls control)
+        start (+ (:start-index query 0) (* pages catalog/page-size))
+        ;; A non-positive offset is the first page, which names no offset at
+        ;; all — the same spelling `books.catalog/query` normalizes to.
+        href (search-href (cond-> (dissoc query :start-index)
+                            (pos? start) (assoc :start-index start)))]
+    [:a {:href href
+         :rel rel
+         :hx-get href
+         :hx-target "#results"
+         :hx-swap "outerHTML"
+         :hx-push-url "true"
+         :hx-indicator "#search-indicator"
+         :class (classes paging-link control-class)}
+     label]))
+
+(defn- paging-nav
+  "The controls for the page `volumes` came back on, or nothing at all when
+  there is nowhere to go."
+  [query volumes]
+  (when-let [controls (seq (controls-at (catalog/page-position query volumes)))]
+    (into [:nav {:class "mt-6 flex items-center justify-end gap-3"
+                 :aria-label "Search result pages"}]
+          (map (partial paging-control query) controls))))
+
 (def ^:private notices
   "What the reader is told when the region is not a list of Volumes. The three
   failure reasons are named separately on purpose: 'come back in a minute',
@@ -267,17 +342,24 @@
      [:p {:class "font-serif text-lg text-stone-900"} heading]
      [:p {:class "mt-2 text-sm text-stone-600"} detail]]))
 
+(defn- volume-list
+  "The Volumes on this page, and the way off it."
+  [query volumes]
+  (list (into [:ul {:class "flex flex-col gap-4"}] (map volume-card volumes))
+        (paging-nav query volumes)))
+
 (defn- results-region
   "The swappable region. `state` is what a **Book search** answered (see
   `books.catalog` for the contract), or `{:outcome :prompt}` when there was
-  nothing to search for."
-  [{:keys [outcome reason volumes]}]
+  nothing to search for; `query` is what it answered, which is what the paging
+  controls carry forward."
+  [query {:keys [outcome reason volumes]}]
   (let [[data-state content]
         (case outcome
           :prompt ["prompt" (notice :prompt)]
           :error ["error" (notice reason)]
           (if (seq volumes)
-            ["results" (into [:ul {:class "flex flex-col gap-4"}] (map volume-card volumes))]
+            ["results" (volume-list query volumes)]
             ["empty" (notice :empty)]))]
     [:div {:id "results"
            :data-state data-state
@@ -290,8 +372,8 @@
 (defn search-results
   "The results region ALONE — what htmx swaps in. Same function the page uses,
   so the two can never drift into rendering different things."
-  [state]
-  (str (h/html (results-region state))))
+  [query state]
+  (str (h/html (results-region query state))))
 
 (defn search-page
   "The whole search page: the form (refilled from `query`) and the results
@@ -305,4 +387,4 @@
     [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
      "Find a book by title, by author, or by both."]
     [:div {:class "mt-8"} (search-form query)]
-    (results-region state)]))
+    (results-region query state)]))
