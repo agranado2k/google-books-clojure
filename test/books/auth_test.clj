@@ -241,7 +241,7 @@
 (deftest the-gated-routes-are-named-in-one-place
   (testing "the seam the bookmarks pages use is data, not a scattered wrapper"
     (is (= {"/search" #{:get :head}
-            "/bookmarks" #{:post :delete}}
+            "/bookmarks" #{:get :head :post :delete}}
            handler/gated-paths))))
 
 (deftest every-gated-path-actually-refuses

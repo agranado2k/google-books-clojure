@@ -76,7 +76,8 @@
     :href "/search"}
    {:title "Bookmarks"
     :blurb "Save the books you care about and find them again in one place."
-    :status :next}
+    :status :now
+    :href "/bookmarks"}
    {:title "Sign-in"
     :blurb "Sign in with Google — an account so your library follows you around."
     :status :now
@@ -106,6 +107,11 @@
      brand]
     [:nav {:class "flex items-center gap-4"}
      [:a {:href "/search" :class nav-link} "Search"]
+     ;; Both destinations are gated, and both are offered to everyone — the
+     ;; refusal is the server's, and it lands a signed-out Reader on sign-in and
+     ;; returns them here afterwards (`books.handler/return-path`). A link the
+     ;; header hid would be a page nobody could find their way back to.
+     [:a {:href "/bookmarks" :class nav-link} "Bookmarks"]
      ;; Server-rendered as a plain link, so a signed-out Reader — and a Reader
      ;; whose browser never ran ClerkJS — still has a way in. ClerkJS replaces
      ;; the contents with its own account menu once it knows there is a session;
@@ -177,6 +183,15 @@
       (header)
       (into [:main {:class "flex-1"}] content)
       (footer)]])))
+
+(defn- page-heading
+  "The eyebrow-and-headline pair every page below the landing page opens with.
+  A seq rather than one element, so the two stay siblings in the section."
+  [eyebrow-text heading]
+  (list
+   [:p {:class (classes "mb-4" eyebrow "text-amber-700")} eyebrow-text]
+   [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
+    heading]))
 
 (defn landing-page
   "The landing page: what the app does today and what is coming, no more. The
@@ -326,6 +341,12 @@
                             " border-amber-600 bg-amber-600 text-white"
                             " hover:bg-amber-700 hover:border-amber-700")}})
 
+(defn- volume-field
+  "The hidden field naming which Volume a control acts on. Every control sends
+  it; only a toggle sends the rest of the snapshot with it."
+  [id]
+  [:input {:type "hidden" :name "volume" :value id}])
+
 (defn- snapshot-fields
   "The Volume a Bookmark keeps, as hidden form fields: the four the card draws,
   and the id that names it. Each author is its own field under the same name,
@@ -335,7 +356,7 @@
   bookmarked snapshot holds the same absences the Volume did."
   [{:keys [id title authors published-date thumbnail]}]
   (list
-   [:input {:type "hidden" :name "volume" :value id}]
+   (volume-field id)
    (when title [:input {:type "hidden" :name "title" :value title}])
    (for [author authors] [:input {:type "hidden" :name "author" :value author}])
    (when published-date [:input {:type "hidden" :name "published-date" :value published-date}])
@@ -360,6 +381,52 @@
   [volume state]
   (str (h/html (bookmark-control volume state))))
 
+;; ---------------------------------------------------------------------------
+;; The other control on the same endpoint: dropping a Bookmark from the
+;; bookmarks page. It differs from the toggle in what it swaps, and it has to
+;; SAY so, because the two answers are rendered by one handler.
+;; ---------------------------------------------------------------------------
+
+(def ^:private bookmarks-region-id
+  "The bookmarks page's one region — what a removal there swaps."
+  "bookmarks")
+
+(def ^:private answer-field
+  "The hidden field a control uses to name the answer it wants back. Read by
+  `books.handler/removal-answers`, which is where both answers are named."
+  "answer")
+
+(def ^:private list-answer
+  "The `answer-field` value that asks for the whole list back. The search card's
+  toggle sends none and gets its own control, which is the default there."
+  "list")
+
+(defn- removal-control
+  "The control that drops a Bookmark from the bookmarks page.
+
+  The same endpoint as the search card's toggle, and one deliberate difference:
+  it swaps the WHOLE list rather than itself. The empty state is a property of
+  the list, so a row that swapped itself away could take the last Bookmark with
+  it and leave a page saying nothing at all.
+
+  It sends the Volume id and nothing else of the snapshot: a removal names a row
+  to delete, and the answer it asks for is drawn from the database rather than
+  from these fields. No `hx-push-url`, for the reason the toggle has none —
+  removing a Bookmark is not a place a reader navigated to."
+  [{:keys [id]}]
+  [:form {:class "mt-3"
+          :data-volume id
+          :hx-delete bookmark-path
+          :hx-target (str "#" bookmarks-region-id)
+          :hx-swap "outerHTML"}
+   (volume-field id)
+   [:input {:type "hidden" :name answer-field :value list-answer}]
+   [:button {:type "submit"
+             :class (str bookmark-button
+                         " border-stone-300 bg-white text-stone-700"
+                         " hover:border-red-600 hover:text-red-700")}
+    "Remove"]])
+
 (defn- bookmark-state
   "Whether this Reader has kept this Volume: `:bookmarked` or `:not-bookmarked`.
   The one place a set membership becomes a state name."
@@ -367,12 +434,13 @@
   (if (contains? bookmarked volume-id) :bookmarked :not-bookmarked))
 
 (defn- volume-card
-  "One Volume, and the control for keeping it. `bookmarked` is the set of Volume
-  ids this Reader has already bookmarked.
+  "One Volume, and `control` — already rendered, because which control a card
+  carries is the page's decision and not the card's: the search page offers to
+  keep the Volume, the bookmarks page offers to drop it.
 
   Every string here comes from the catalog and is therefore escaped by hiccup2 —
   no `h/raw`, ever."
-  [bookmarked {:keys [id title authors published-date description thumbnail] :as volume}]
+  [control {:keys [title authors published-date description thumbnail]}]
   [:li {:class (classes "flex gap-4" card "p-5")}
    [:div {:class "hidden w-16 shrink-0 sm:block"}
     (if thumbnail
@@ -388,7 +456,7 @@
     (when (seq description)
       [:p {:class (classes "mt-2 text-sm leading-relaxed text-stone-600" description-clamp)}
        description])
-    (bookmark-control volume (bookmark-state bookmarked id))]])
+    control]])
 
 ;; ---------------------------------------------------------------------------
 ;; Paging. A control is a real link first: the no-JS path moves through the
@@ -475,19 +543,39 @@
     :detail "This is on our side, not yours. Try again shortly."}
    :not-configured
    {:heading "Search is not configured here."
-    :detail "This deployment has no Google Books API key, so no search can run."}})
+    :detail "This deployment has no Google Books API key, so no search can run."}
+   :no-bookmarks
+   {:heading "No bookmarks yet."
+    :detail "Everything you keep lands here, with its cover, its authors and the year it came out."
+    :action {:href search-path :label "Find something to keep →"}}})
 
-(defn- notice [kind]
-  (let [{:keys [heading detail]} (notices kind)]
+(defn- notice
+  "What the reader is told, and — where there is one — the single thing they can
+  do about it. Only the empty collection has an action today: a failed search
+  has nothing to offer but trying again, which is the page they are already on."
+  [kind]
+  (let [{:keys [heading detail action]} (notices kind)]
     [:div {:class "rounded-2xl border border-dashed border-stone-300 p-8 text-center"}
      [:p {:class "font-serif text-lg text-stone-900"} heading]
-     [:p {:class "mt-2 text-sm text-stone-600"} detail]]))
+     [:p {:class "mt-2 text-sm text-stone-600"} detail]
+     (when action
+       [:p {:class "mt-4"}
+        [:a {:href (:href action)
+             :class (classes "text-sm font-medium text-stone-700" underline-link
+                             "hover:text-amber-700")}
+         (:label action)]])]))
+
+(def ^:private volume-list-class "flex flex-col gap-4")
 
 (defn- volume-list
   "The Volumes on this page, and the way off it."
   [query volumes bookmarked]
-  (list (into [:ul {:class "flex flex-col gap-4"}]
-              (map (partial volume-card bookmarked) volumes))
+  (list (into [:ul {:class volume-list-class}]
+              (map (fn [volume]
+                     (volume-card (bookmark-control volume
+                                                    (bookmark-state bookmarked (:id volume)))
+                                  volume)))
+              volumes)
         (paging-nav query volumes)))
 
 (defn- results-region
@@ -534,6 +622,53 @@
     (results-region query state bookmarked)]))
 
 ;; ---------------------------------------------------------------------------
+;; The bookmarks page.
+;;
+;; ONE region, `#bookmarks`, in two states — the Volumes this Reader kept, or an
+;; empty collection. Each carries a `data-state`, exactly as the results region
+;; does: it is what the handler tests assert on, and what tells a reader of this
+;; file that the two states are exhaustive.
+;;
+;; Every string on it comes out of the `bookmarks` table (ADR-0006 clause 4), so
+;; the page renders in full with the Catalog unreachable and asks the Book search
+;; port nothing at all.
+;; ---------------------------------------------------------------------------
+
+(defn- bookmarks-region
+  "The swappable region. `volumes` is what `books.bookmarks/for-reader`
+  answered — the stored snapshots, most recently bookmarked first."
+  [volumes]
+  (let [[data-state content]
+        (if (seq volumes)
+          ["bookmarks" (into [:ul {:class volume-list-class}]
+                             (map (fn [volume] (volume-card (removal-control volume) volume)))
+                             volumes)]
+          ["empty" (notice :no-bookmarks)])]
+    [:div {:id bookmarks-region-id
+           :data-state data-state
+           :class "mt-8"
+           ;; A removal replaces this under the reader rather than navigating
+           ;; them anywhere, so a screen reader is told the list changed.
+           :aria-live "polite"}
+     content]))
+
+(defn bookmark-list
+  "The region ALONE — what htmx swaps in after a removal. The same function the
+  page uses, so a re-rendered list and a freshly drawn one cannot drift."
+  [volumes]
+  (str (h/html (bookmarks-region volumes))))
+
+(defn bookmarks-page
+  "The whole bookmarks page: everything this Reader kept, and nothing else."
+  [clerk volumes]
+  (layout
+   {:title (str "Bookmarks — " brand)
+    :clerk clerk}
+   [:section {:class (classes container "pb-24 pt-12 sm:pt-16")}
+    (page-heading "Your bookmarks" "The books you kept.")
+    (bookmarks-region volumes)]))
+
+;; ---------------------------------------------------------------------------
 ;; Sign-in, and the one page behind it.
 ;;
 ;; Both are rendered by the server with the content a Reader without ClerkJS
@@ -541,15 +676,6 @@
 ;; publishable key in `<head>` is public by design, and the session token never
 ;; reaches the markup at all — it lives in a cookie and in ClerkJS's memory.
 ;; ---------------------------------------------------------------------------
-
-(defn- page-heading
-  "The eyebrow-and-headline pair every page below the landing page opens with.
-  A seq rather than one element, so the two stay siblings in the section."
-  [eyebrow-text heading]
-  (list
-   [:p {:class (classes "mb-4" eyebrow "text-amber-700")} eyebrow-text]
-   [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
-    heading]))
 
 (defn sign-in-page
   "The sign-in page. `return-to` is where the Reader was going before the gate
