@@ -5,24 +5,30 @@
   (:require [books.handler :as handler]
             [books.server :as server]
             [books.test-db :as test-db]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json])
   (:import (java.net URI)
            (java.net.http HttpClient HttpRequest HttpResponse$BodyHandlers)))
 
-(defn- health-get
-  "GET /health over real HTTP, as a probe would. Not `slurp`: that throws away
-  the body of any non-2xx response, and the degraded responses are the point."
-  [jetty]
+(defn- get-path
+  "GET `path` off a running server over real HTTP, answering status and body.
+  Not `slurp`: that throws away the body of any non-2xx response, and the
+  degraded responses are the point."
+  [jetty path]
   (let [http-port (.getLocalPort (aget (.getConnectors jetty) 0))
         request (-> (HttpRequest/newBuilder
-                     (URI. (str "http://localhost:" http-port "/health")))
+                     (URI. (str "http://localhost:" http-port path)))
                     (.GET)
                     (.build))
         response (.send (HttpClient/newHttpClient) request
                         (HttpResponse$BodyHandlers/ofString))]
-    {:status (.statusCode response)
-     :body (json/read-value (.body response))}))
+    {:status (.statusCode response) :body (.body response)}))
+
+(defn- health-get
+  "GET /health over real HTTP, as a probe would."
+  [jetty]
+  (update (get-path jetty "/health") :body json/read-value))
 
 (deftest port-uses-env-value
   (testing "uses the PORT value when present"
@@ -72,4 +78,30 @@
       (try
         (is (= {:status 200 :body {"status" "ok" "db" "not-configured"}}
                (health-get jetty)))
+        (finally (.stop jetty))))))
+
+(deftest full-boot-hands-the-error-page-a-redactor-for-the-api-key
+  (testing "the last-line fault report can print text we did not construct, so it is redacted"
+    ;; `book-search` catches Exception; an Error from the fetch path is not
+    ;; caught there and reaches `wrap-error-page`, whose stderr line prints the
+    ;; message verbatim. Only the boot path knows the key, so only the boot path
+    ;; can hand down the means to strip it.
+    (let [wiring (atom nil)]
+      (with-redefs [handler/make-app (fn [_datasource options]
+                                       (reset! wiring options)
+                                       (constantly {:status 200}))
+                    server/start (fn [_http-port app] app)]
+        (server/run {:http-port 0 :database-url nil :db-optional? true
+                     :books-api-key "test-key-not-a-real-one"}))
+      (is (= "connect failed for [redacted]"
+             ((:redact @wiring) "connect failed for test-key-not-a-real-one"))))))
+
+(deftest full-boot-without-an-api-key-serves-a-degraded-search-page
+  (testing "no GOOGLE_BOOKS_API_KEY must not crash the boot — the page says so instead"
+    (let [jetty (server/run {:http-port 0 :database-url nil :db-optional? true
+                             :books-api-key nil})]
+      (try
+        (let [{:keys [status body]} (get-path jetty "/search?title=clojure")]
+          (is (= 200 status))
+          (is (str/includes? body "Search is not configured here")))
         (finally (.stop jetty))))))

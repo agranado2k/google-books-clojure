@@ -42,14 +42,36 @@ Keep definitions short enough to read in a session-start scan. When one needs a
 page of explanation, that page is an ADR and the entry points at it.
 -->
 
-## <Context name>
+## Catalog search
 
-- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
-  - _Avoid_: <near-synonym> (<why>).
-
-## <Second context name>
-
-- **<Term>** — <what it is>. <Kind>. Ref: <ADR-NNNN>.
+- **Volume** — one entry in the Catalog: a single *edition* of a book as the
+  catalog describes it — its title, authors, published date, description and
+  cover thumbnail. Read type (a value object built from a catalog response,
+  never persisted). The name is the catalog's own, and it is what a search
+  returns. Ref: `books.catalog` (the port's docstring carries the field list),
+  ADR-0004 (rendered by a Hiccup2 page, always escaped).
+  - _Avoid_: **Book** — one book has many Volumes (editions, translations,
+    reprints), so the two are not the same thing and using both invites an
+    invented distinction between them.
+  - _Avoid_: **Result**, **Item**, **Hit** — these name a Volume's role in one
+    response rather than what it is.
+- **Catalog** — the external corpus of Volumes the app searches: Google Books.
+  External system (a boundary, not a model — nothing in it is ours and none of
+  it is persisted here). Reachable only through the Book search port, which is
+  why "the Catalog is unavailable" is a state the UI renders rather than an
+  exception that escapes a handler. Ref: `books.catalog` (the outcomes),
+  `books.google-books` (the adapter that reaches it).
+- **Book search** — the port the app searches the Catalog through: a **plain
+  function of one argument**, the normalized query map, answering an outcome map
+  and never throwing. Port. Its real adapter is `books.google-books/book-search`;
+  the default is `books.catalog/not-configured`; tests inject a closure
+  (`books.stub-book-search`). The handler depends on this contract and never on
+  an adapter — it is injected as `make-app`'s `:book-search` option.
+  Ref: `books.catalog` (the docstring carries the contract), ADR-0001 (the
+  handler is the test seam).
+  - _Avoid_: **Books port** — the same thing under a plural that reads like the
+    banned **Book**, and under a shape (a protocol named `BookSearch`, with a
+    `search-volumes` operation) the port has not had since it became a function.
 
 ---
 
@@ -61,4 +83,19 @@ the terms that are ambiguous here and are therefore banned. Each line names the
 banned word and the word to use instead.
 -->
 
-- **<banned word>** — ambiguous here (<why>). Use **<term>** or **<term>**.
+- **Book** — ambiguous as a name for **what a search returns** (a book is a
+  work; the Catalog answers editions of it). Use **Volume** for that, always.
+  The word itself is not banned outright, and the uses that remain are
+  deliberate: the product's name, the `books` namespace root, the canonical
+  term **Book search** above and the identifiers derived from it
+  (`book-search`, the `:book-search` option, `books.stub-book-search`), and
+  `GOOGLE_BOOKS_API_KEY` / the `:books-api-key` option, which name a third
+  party's API and are therefore its spelling rather than ours.
+- **Result**, **Item**, **Hit** — ambiguous as a name for **a thing the Catalog
+  describes**: they name a position in a response. Use **Volume** for that.
+  - _Carve-out_: "results" is the right word for the **region of the search
+    page** that holds Volumes, and for that region's states — `#results`,
+    `data-state="results"`, and `books.views/search-results`. A region in a
+    response is precisely what the word means, so this is not the ambiguity the
+    ban is about: the ban is on calling a Volume a result, never on naming the
+    box the Volumes are rendered into.

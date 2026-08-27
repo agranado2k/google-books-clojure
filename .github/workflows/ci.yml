@@ -91,6 +91,10 @@ jobs:
             ~/.gitlibs
           key: clojure-deps-${{ runner.os }}-${{ hashFiles('deps.edn') }}
 
+      # The vendored htmx needs no step of its own: books.assets-test re-hashes
+      # the committed bytes against the pin in src/books/assets.clj on every
+      # run, here included, and that pin is now the only copy there is —
+      # scripts/vendor-htmx.sh reads it rather than repeating it.
       - name: Run tests
         env:
           # feat/postgres-wiring's integration tests need a live database; the

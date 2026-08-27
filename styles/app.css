@@ -10,3 +10,18 @@
  */
 @import "tailwindcss" source(none);
 @source "../src";
+
+/* htmx's loading indicator, in plain CSS because it is not a utility: htmx
+ * toggles the `htmx-request` class on the element named by `hx-indicator` for
+ * the life of a request, and these two rules are what make that visible.
+ * Opacity rather than display, so the button row does not jump when a search
+ * starts. See books.views/search-form. */
+.htmx-indicator {
+	opacity: 0;
+	transition: opacity 150ms ease-in;
+}
+
+.htmx-request.htmx-indicator,
+.htmx-request .htmx-indicator {
+	opacity: 1;
+}

@@ -2,7 +2,8 @@
   "Handler-seam tests: pass a Ring request map into the app, assert on the
   response map. The database these tests talk to — and the command that starts
   one — is in `books.test-db`."
-  (:require [books.db :as db]
+  (:require [books.assets :as assets]
+            [books.db :as db]
             [books.handler :as handler]
             [books.test-db :as test-db]
             [clojure.string :as str]
@@ -95,10 +96,18 @@
 (deftest landing-page-explains-the-product
   ;; Every string below appears ONLY in the landing body — never in the shared
   ;; header or footer — so each assertion can fail for the reason it states.
-  (testing "the landing copy promises search, bookmarks, and a later sign-in"
+  (testing "the landing copy offers search, and promises bookmarks and a later sign-in"
     (let [body (:body (request :get "/"))]
       (is (str/includes? body "Search the Google Books catalog. Keep the books that matter."))
-      (is (str/includes? body "Find any book in the Google Books catalog by title, author, or keyword."))
+      ;; Search shipped, so the roadmap card says so rather than "coming next".
+      (is (str/includes? body "Find a book in the Google Books catalog by title, by author, or by both."))
+      ;; Tied to the SEARCH card, not merely present on the page: a bare
+      ;; "Available now" is equally there if Bookmarks became :now and Search
+      ;; :next — the one regression this line exists to catch. The bounded gap
+      ;; is the status paragraph's own open tag and nothing else; the next
+      ;; card's status is several hundred characters further on.
+      (is (re-find #"(?s)Find a book in the Google Books catalog by title, by author, or by both\..{0,120}Available now"
+                   body))
       (is (str/includes? body "Save the books you care about and find them again in one place."))
       (is (str/includes? body "an account so they follow you around")))))
 
@@ -116,6 +125,83 @@
     ;; opt-out config the page tests use.
     (let [app (handler/make-app nil {})]
       (is (= 404 (:status (app {:request-method :get :uri "/nope"})))))))
+
+;; ---------------------------------------------------------------------------
+;; A handler that throws must not become a disclosure.
+;; Regression: with no error middleware, Jetty answered its own error page —
+;; a 4.7 KB body naming the failing namespace, the reitit and Jetty stack
+;; frames, and the server version — to an anonymous caller.
+;; ---------------------------------------------------------------------------
+
+(defn- throwing-app
+  "An app whose search port is defective: it throws rather than answering an
+  outcome. Nothing else can reach the error path on purpose, which is the
+  point — the middleware has to hold for the handler nobody predicted."
+  []
+  (handler/make-app nil {:db-optional? true
+                         :book-search (fn [_query]
+                                        (throw (ex-info "port blew up" {:secret "s3cret"})))}))
+
+(deftest a-throwing-handler-answers-a-minimal-500
+  (let [errors (java.io.StringWriter.)
+        response (binding [*err* errors]
+                   ((throwing-app) {:request-method :get :uri "/search"
+                                    :query-string "title=clojure"}))
+        body (str (:body response))]
+    (testing "the caller gets a 500 that is an HTML page, not a framework dump"
+      (is (= 500 (:status response)))
+      (is (str/starts-with? (str (header response "Content-Type")) "text/html")))
+    (testing "and nothing internal is in it"
+      (doseq [leak ["exception" "clojure." "reitit" "jetty" "s3cret" "port blew up" "\tat "]]
+        (is (not (str/includes? (str/lower-case body) (str/lower-case leak)))
+            (str "the 500 body must not mention " (pr-str leak)))))
+    (testing "the fault is reported server-side — class and message only"
+      (let [reported (str errors)]
+        (is (str/includes? reported "ExceptionInfo"))
+        (is (str/includes? reported "port blew up"))
+        (testing "never the request, the params, or the ex-data — they carry reader input"
+          (is (not (str/includes? reported "s3cret")))
+          (is (not (str/includes? reported "title=clojure"))))))))
+
+(defn- unreportable
+  "A fault whose own message cannot be read: `getMessage` throws. It stands in
+  for every way reporting a fault can itself fail — a closed `*err*` is the
+  other — so the test below is about the reporting throwing, not about one
+  particular way it does."
+  []
+  (proxy [RuntimeException] ["unreadable"]
+    (getMessage [] (throw (IllegalStateException. "getMessage exploded")))))
+
+(deftest a-fault-whose-own-reporting-throws-still-answers-the-error-page
+  ;; `fail!` runs INSIDE the catch: it reports, then builds the 500. Reporting
+  ;; that throws therefore escaped this middleware entirely and handed the
+  ;; request back to Jetty's own error page — the exact disclosure the
+  ;; middleware exists to prevent, reached by the one path nobody watches.
+  (let [app (handler/make-app nil {:db-optional? true
+                                   :book-search (fn [_query] (throw (unreportable)))})
+        response (binding [*err* (java.io.StringWriter.)]
+                   (app {:request-method :get :uri "/search" :query-string "title=clojure"}))]
+    (is (= 500 (:status response)))
+    (is (str/includes? (str (:body response)) "Something went wrong"))))
+
+(deftest a-reported-fault-is-redacted-before-it-reaches-stderr
+  ;; `books.google-books/book-search` catches Exception, so an Error from the
+  ;; fetch path arrives here unfiltered — and its message belongs to whatever
+  ;; threw it, not to us. `google-books/report!` redacts for exactly that
+  ;; reason; this line prints the same kind of text and did not.
+  (let [secret "test-key-not-a-real-one"
+        errors (java.io.StringWriter.)
+        app (handler/make-app nil
+                              {:db-optional? true
+                               :redact #(str/replace % secret "[redacted]")
+                               :book-search (fn [_query]
+                                              (throw (AssertionError.
+                                                      (str "upstream said " secret))))})
+        response (binding [*err* errors]
+                   (app {:request-method :get :uri "/search" :query-string "title=clojure"}))]
+    (is (= 500 (:status response)) "precondition: the Error reached the error page")
+    (is (not (str/includes? (str errors) secret)) "a credential must never reach a log line")
+    (is (str/includes? (str errors) "[redacted]") "…but the fault is still reported")))
 
 ;; ---------------------------------------------------------------------------
 ;; The static surface: /css/ and nothing else.
@@ -149,8 +235,8 @@
       (is (not= 200 (:status (request method "/css/fixture.css")))
           (str (str/upper-case (name method)) " on a stylesheet must not answer 200")))))
 
-(deftest static-surface-is-scoped-to-css
-  (testing "classpath resources outside public/css are not web-reachable"
+(deftest static-surface-is-scoped-to-css-and-js
+  (testing "classpath resources outside public/css and public/js are not web-reachable"
     ;; Regression: a handler rooted at "public" and mounted at "/" served
     ;; /.gitkeep, and would serve any public/ asset a dependency jar carries.
     ;; test-resources/public/not-served.txt stands in for exactly that.
@@ -158,4 +244,30 @@
     ;; And nothing outside public/ at all: migrations ship on the same
     ;; classpath, so a re-rooted handler would publish the schema.
     (is (= 404 (:status (request :get "/migrations/20260809120000-schema-baseline.up.sql"))))
-    (is (= 404 (:status (request :get "/css/../migrations/20260809120000-schema-baseline.up.sql"))))))
+    (is (= 404 (:status (request :get "/css/../migrations/20260809120000-schema-baseline.up.sql"))))
+    ;; The /js/ root added for htmx is a second scoped root, not a re-rooting.
+    (is (= 404 (:status (request :get "/js/../migrations/20260809120000-schema-baseline.up.sql"))))
+    (is (= 404 (:status (request :get "/js/../not-served.txt"))))))
+
+;; ---------------------------------------------------------------------------
+;; The second static root: the vendored htmx under /js/.
+;; Unlike the stylesheet this file is COMMITTED, so these run against the real
+;; asset the browser gets — `books.assets-test` is what proves its bytes.
+;; ---------------------------------------------------------------------------
+
+(deftest vendored-script-is-served
+  (testing "GET the vendored htmx answers 200 with a JavaScript content type"
+    (let [response (request :get assets/htmx-path)]
+      (is (= 200 (:status response)))
+      (is (re-find #"javascript" (str (header response "Content-Type")))))))
+
+(deftest vendored-script-is-cached-forever
+  (testing "the URL carries the version, so the bytes behind it can never change"
+    (is (= "public, max-age=31536000, immutable"
+           (header (request :get assets/htmx-path) "Cache-Control")))))
+
+(deftest vendored-script-rejects-write-methods
+  (testing "only GET and HEAD reach the script root"
+    (doseq [method [:post :put :delete :patch]]
+      (is (not= 200 (:status (request method assets/htmx-path)))
+          (str (str/upper-case (name method)) " on a script must not answer 200")))))
