@@ -11,16 +11,20 @@ name: CI
 #               someone's shell history. The `labeled`/`unlabeled` triggers
 #               exist for that hatch; they re-run the other jobs too — the
 #               accepted cost of one workflow while the suite is seconds long.
+#   deploy      railway up — push-to-main only, and only after test + docs-gate
+#               are green (ADR-0008).
 #
 # pull_request runs the PR's OWN copy of this file and of the guard scripts, so
 # a PR that edits them is checked by its edits. This gates honest mistakes, not
-# an adversary — the jobs hold a read-only token and make no external call;
-# human review covers a diff that weakens a gate.
+# an adversary — the CI jobs hold a read-only token and make no external call;
+# human review covers a diff that weakens a gate. `deploy` is the one job that
+# does act externally, which is exactly why it can never run on pull_request:
+# a fork's PR must not be able to reach the production project.
 #
-# Deployment is deliberately ABSENT: Railway's native GitHub integration owns
-# deploys — an owner decision recorded in docs/diary.md (2026-08-09, "deploys
-# stay on Railway's native GitHub integration"), not an ADR: ADR-0002
-# explicitly disclaims deciding CI. Third-party actions are pinned by full
+# Deployment is NO LONGER absent. Railway's native GitHub integration was the
+# recorded decision (docs/diary.md, 2026-08-09) but never fired for this repo —
+# merges produced no deployment — so CI triggers the deploy instead. That
+# reversal is recorded in ADR-0008. Third-party actions are pinned by full
 # commit SHA by analogy with the Dockerfile's digest pins, not because any ADR
 # requires it.
 #
@@ -208,3 +212,67 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: sh scripts/tdd-pairing-guard-ci.sh
+
+  deploy:
+    name: Deploy (Railway)
+    # TWO independent reasons this can never run on a pull_request: the event
+    # name, and the ref (a pull_request run's github.ref is refs/pull/N/merge,
+    # never refs/heads/main). A fork PR therefore cannot reach the production
+    # project even if one clause were deleted by mistake.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Green before production: a failed or cancelled `needs` job skips this one,
+    # so a red main never deploys. `tdd-pairing` is deliberately NOT here — it
+    # is pull_request-only, and a needs-edge to a job that never runs on push
+    # would skip this job forever. See ADR-0008.
+    needs: [test, docs-gate]
+    runs-on: ubuntu-latest
+    env:
+      # Mapped once at job level for the guard below: the `secrets` context is
+      # NOT available in a job-level `if:`, but `env` is available in every
+      # step-level `if:` — so this is what makes "no token ⇒ skip, don't fail"
+      # expressible at all. `railway` also reads RAILWAY_TOKEN straight from the
+      # environment, so the deploy step needs no `with: token` of its own.
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+    steps:
+      # A fork, or this repo before the operator creates the secret, has no
+      # token. That is a normal state, not a failure: it reports and stops,
+      # leaving the pipeline green rather than permanently red.
+      - name: No RAILWAY_TOKEN — skip the deploy
+        if: env.RAILWAY_TOKEN == ''
+        run: |
+          echo "::notice title=Deploy skipped::RAILWAY_TOKEN is not set - nothing was deployed."
+          echo "Set the RAILWAY_TOKEN repository secret (a Railway *project* token)"
+          echo "to enable deploys. See docs/adr/0008-ci-triggers-the-railway-deploy.md."
+
+      # `railway up` uploads THIS checkout as the build context; Railway does not
+      # pull the repo itself on this path. So the deploy needs the source, and
+      # what ships is exactly the commit CI just proved green.
+      - name: Checkout
+        if: env.RAILWAY_TOKEN != ''
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node
+        if: env.RAILWAY_TOKEN != ''
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      # Installed by npm rather than by a third-party action, so there is no
+      # extra action to trust with a production token — but that means no SHA
+      # pin is possible, so the VERSION is pinned instead, exactly as the
+      # Tailwind download above pins its release. Bump it deliberately.
+      - name: Install the Railway CLI
+        if: env.RAILWAY_TOKEN != ''
+        env:
+          RAILWAY_CLI_VERSION: 5.45.3
+        run: npm install -g "@railway/cli@${RAILWAY_CLI_VERSION}"
+
+      # --service is LOAD-BEARING, not cosmetic: an earlier deploy without it
+      # resolved to the project's Postgres service and took the database down.
+      # --detach returns once the build is queued; the deployment's own outcome
+      # is watched in Railway, not held open on a runner.
+      - name: Deploy to Railway
+        if: env.RAILWAY_TOKEN != ''
+        run: railway up --service google-books-clojure --detach
