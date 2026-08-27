@@ -139,7 +139,7 @@ The one agent whose job is the question the other six never ask: **did anything 
 **Context isolation (non-negotiable, shared invariant §4):** this sub-agent runs with a fresh context and receives ONLY:
 
 1. The diff (`merge-base...HEAD`) scoped to the **contract artifacts** below.
-2. The originating spec: the PRD/ticket issue body (from the branch name, PR description, or `Part of #N` references) and any decision records the diff touches.
+2. The originating spec: the PRD/ticket issue body (from the branch name, PR description, or `Part of #N` references) and any decision records the diff touches. **When reading a PR description, stop at the marker line `<!-- explain-diff-appendix -->` where present**: `/implement` appends the author's `/explain-diff` narrative below it, and the implementer's narrative is exactly what this agent's context isolation exists to exclude. A body without the marker is read whole — an ordinary `---` rule is formatting, never a boundary.
 3. The output of `scripts/behavior-delta.sh` (the deterministic candidate list), and the mutation delta from `adapters/` if one is wired.
 
 It must **NOT** receive the other six agents' findings, the implementation conversation, or this skill's earlier summarization — anchoring on the implementer's narrative is exactly what it exists to avoid.
