@@ -178,10 +178,10 @@ export const claudeMdRefs = {
    *                misread ordinary "either/or" phrasing as a path.
    */
   portability: {
-    // ONE file, and `.claude/skills/**` is deliberately not in the list.
+    // TWO files, and `.claude/skills/**` is deliberately not in the list.
     //
     // Portability is not a virtue every file should have — it is a contract
-    // this one file signs, because it is the file that gets copied verbatim
+    // these files sign, because they are the articles that get copied verbatim
     // into another repo (see VERSION). The skills are copied too, but they are
     // YOURS on arrival and are expected to name your paths, your commands, and
     // your tooling the moment you adapt them. Adding them here would either
@@ -193,7 +193,10 @@ export const claudeMdRefs = {
     // What DOES hold the skills honest is a different check: every `/command`
     // in the manual layer must resolve to a skill directory (`skill-missing`,
     // above), so the map and the skills cannot drift apart.
-    files: ["constitution/shared-invariants.md"],
+    files: [
+      "constitution/shared-invariants.md",
+      "constitution/shared-code-craft.md",
+    ],
     deny: [
       // Your vocabulary first: the leaks only you can enumerate.
       ...localVocabulary.map(denyEntryFromTerms),

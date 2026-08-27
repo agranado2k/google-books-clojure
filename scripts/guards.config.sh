@@ -31,8 +31,12 @@
 #   4. Config-as-data is testable. The guard tests point GUARDS_CONFIG at
 #      throwaway files and assert the behaviour of each setting.
 #
-# The guards locate this file as: $GUARDS_CONFIG (if set) -> the repo root's
-# scripts/guards.config.sh -> the file next to the guard script. A missing or
+# The guards locate this file as: $GUARDS_CONFIG (if set) -> the cwd repo
+# root's scripts/guards.config.sh, sourced only when that repo is also the one
+# the guard script itself lives in (a config is code — standing in a foreign
+# clone must not run its config; the loader refuses with a stderr note, and
+# $GUARDS_CONFIG is the deliberate way to cross repos) -> the file next to the
+# guard script. A missing, refused or
 # unconfigured file is NOT an error: the pairing guard warns once and passes.
 # A guard that blocks every push in a repo nobody has configured yet gets
 # deleted on day one, and a deleted guard checks nothing.

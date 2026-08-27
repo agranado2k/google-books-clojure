@@ -1,9 +1,11 @@
 # `claude-code/` — wiring capability tiers into one agent harness
 
-The kit resolves a **capability tier** to a model identifier and stops there:
+The kit resolves a **capability tier** — and optionally a **task domain** — to a
+model identifier and stops there:
 
 ```sh
-sh scripts/agents.lib.sh implementer   # prints the mapped id, or nothing
+sh scripts/agents.lib.sh implementer           # prints the mapped id, or nothing
+sh scripts/agents.lib.sh implementer content   # the same, for prose work
 ```
 
 What it deliberately does not know is **where that string goes** when an agent
@@ -28,6 +30,17 @@ So the pattern a skill follows is:
 model=$(sh scripts/agents.lib.sh mechanical)
 # then: spawn with model="$model" if it is non-empty, and with no model
 #       parameter at all if it is empty.
+```
+
+And with a domain, when the ticket carries one — the branch is identical,
+because the second axis changes which variable is read and nothing about the
+call:
+
+```sh
+# ticket says:  Tier: implementer  /  Domain: content
+model=$(sh scripts/agents.lib.sh implementer content)
+# -> AGENT_TIER_IMPLEMENTER_CONTENT if the project mapped it,
+#    AGENT_TIER_IMPLEMENTER if not, and the empty-means-omit branch either way.
 ```
 
 Two things worth being explicit about:
@@ -60,6 +73,23 @@ The single biggest saving is `mechanical`, because expand–migrate–contract w
 are mostly migrate tickets. The single most expensive mistake is a cheap
 `reviewer`, because it fails silently.
 
+### The optional domain overrides
+
+Each tier also takes `AGENT_TIER_<TIER>_<DOMAIN>`, consulted first and falling
+back to the plain variable. Set one only where the medium genuinely changes your
+answer — the usual pair being "the best coding model" and "the best writing
+model" at the `implementer` tier:
+
+```sh
+AGENT_TIER_IMPLEMENTER='<a strong general model>'
+AGENT_TIER_IMPLEMENTER_CONTENT='<the one you would hand a launch post to>'
+```
+
+Everything you leave unset keeps resolving through the tier, so this stays a
+two-line change rather than a matrix to maintain. Note the fold: a domain token
+may contain hyphens and a variable name may not, so `html-report` reads
+`AGENT_TIER_IMPLEMENTER_HTML_REPORT`.
+
 ## What this adapter deliberately does NOT contain
 
 - **No model identifiers.** Not here either. This directory is reference prose
@@ -87,3 +117,17 @@ done
 Four non-empty values and no `UNMAPPED` warning on stderr means the mapping is
 live. Any tier you deliberately left unmapped will print an empty value and warn
 once — which is a decision, as long as it is one you made.
+
+If you mapped any domains, check that the ones you meant to differ actually do:
+
+```sh
+for d in code content; do
+  printf 'implementer/%s -> %s\n' "$d" "$(sh scripts/agents.lib.sh implementer "$d")"
+done
+```
+
+Two identical values here mean the override is not being read — most likely the
+variable name does not match the token (remember the hyphen fold), and the
+resolver fell back to the tier exactly as designed, without a word. That silence
+is the right default for the domains you never mapped, which is why this check
+is worth running once on the ones you did.

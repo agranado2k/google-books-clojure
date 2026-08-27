@@ -67,6 +67,19 @@ spawned, and never by the agent about itself.
 `/to-tickets` stamps a tier on every ticket and shows it at the quiz for
 override; `/implement` reads its ticket's tier when it spawns.
 
+A tier is a **cost/benefit shape**, not a description of the work's medium —
+"write the launch announcement" and "write the retry logic" are both
+`implementer`. Where that distinction is worth paying for, a ticket may also
+carry an optional **`Domain:`** line — a lowercase token naming what the work is
+made of (`code`, `content`, `sql`, `html-report`) — and the resolver takes it as
+a second argument: `sh scripts/agents.lib.sh implementer content` prefers
+`AGENT_TIER_IMPLEMENTER_CONTENT` and falls back to `AGENT_TIER_IMPLEMENTER`.
+Unlike the four tiers, **the domain vocabulary is open and local**: it is data in
+your config, invented by the repo that finds the distinction useful, and a domain
+you have not mapped is not an error — it resolves to the tier, silently, which is
+the right answer for every medium you have no opinion about. A ticket with no
+`Domain:` line is the ordinary case.
+
 **This manual names no model, and neither does any other file the kit ships.**
 Model identifiers rot on a vendor's schedule, so the tier → model mapping is
 data in `scripts/agents.config.sh` and the resolver is `scripts/agents.lib.sh`
@@ -182,11 +195,13 @@ Spec → tickets → implementation → review → landing:
 ends at an open PR carrying an independent review) → `/review-pr` →
 `/pr-iterate` → `/merge-train` → `/worktree-cleanup`.
 
-Four step out of that line: `/grill-with-docs` replaces `/grill-me` once the
+Several step out of that line: `/grill-with-docs` replaces `/grill-me` once the
 project has a glossary and decision records worth challenging a plan against,
 `/prototype` answers a feasibility question the spec is blocked on, `/diagnose`
-is for a bug rather than a feature, and `/improve-codebase-architecture` is for
-an area that has become hard to change — it finds and designs the deepening,
+is for a bug rather than a feature, `/explain-diff` turns a diff, branch or PR
+into an interactive explainer so a review or a merge starts from understanding,
+and `/improve-codebase-architecture` is for an area that has become hard to
+change — it finds and designs the deepening,
 then re-enters the line at `/to-tickets`, because a behaviour-preserving refactor
 is a ticket of its own and never a passenger on a feature diff (shared invariant
 §10).
@@ -208,8 +223,10 @@ Its personas and surfaces are declared in `constitution/local-product.md`.
 | Split a spec into tracer-bullet tickets | `/to-tickets` — one ticket per fresh session, autonomy label decided at write time |
 | Build one ticket                    | `/implement` — restate, drive `/tdd` through the seams, then deliver: push, open the PR, request an independent review. Stops there; the merge is yours |
 | Write the code test-first           | `/tdd` — red, green, refactor, one behavior at a time |
+| Hold the code itself to a standard  | `constitution/shared-code-craft.md` — the ten portable craft rules; load it before writing or reviewing code |
 | Debug a hard bug or a perf regression | `/diagnose` — build the feedback loop first     |
 | Rescue an area that has become hard to change | `/improve-codebase-architecture` — deepening candidates, interface design, glossary discipline; hands off to `/to-tickets` |
+| Understand a change before reviewing or merging it | `/explain-diff` — interactive HTML explainer: background, intuition, walkthrough, quiz; teaches, never reviews |
 | Review a branch before it lands     | `/review-pr` — two axes: standards to agents, behavior to you |
 | Use the product before a user does  | `/dogfood` — declared personas, real surface, findings out as candidate tickets; it never fixes what it finds |
 | Drive an open PR to green           | `/pr-iterate` — one closed loop; compose as `/loop /pr-iterate <PR#>` |

@@ -27,8 +27,9 @@
 
   This article is for the STACK. Process (commits, merges, review, logging)
   goes in local-workflow.md. Portable rules that hold regardless of stack are
-  already in shared-invariants.md — point at them, never restate them (one home
-  per rule, shared invariant §11).
+  already in shared-invariants.md (the lifecycle) and shared-code-craft.md (the
+  code itself) — point at them, never restate them (one home per rule, shared
+  invariant §11).
 -->
 
 # Local engineering — this stack's style, architecture, and boundaries
@@ -47,7 +48,9 @@ portable reasoning behind several of these rules is in `shared-invariants.md`.
 
 <!-- The rules an agent gets wrong by default, and that review keeps repeating.
      Anything a formatter or linter already enforces does NOT belong here — it
-     is enforced, therefore it is not a standing instruction. -->
+     is enforced, therefore it is not a standing instruction. The portable craft
+     rules are already in `shared-code-craft.md` — point at them, never
+     restate them. This section holds only what is STACK-specific. -->
 
 - {{STYLE_RULE_1}}
 - {{STYLE_RULE_2}}

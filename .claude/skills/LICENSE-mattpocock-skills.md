@@ -44,6 +44,30 @@ prior art and is credited as such; the wording here is this kit's, and the port
 deliberately dropped two things the source had — the browser-only assumption,
 and the repair loop.
 
+## The skill with a different upstream
+
+`explain-diff/` is **copied and adapted** from Geoffrey Litt's
+`explain-diff-html` skill, published as a
+[public gist](https://gist.github.com/geoffreylitt/a29df1b5f9865506e8952488eac3d524)
+and shared for adoption in his post
+["Understanding is the new bottleneck"](https://www.geoffreylitt.com/2026/07/02/understanding-is-the-new-bottleneck)
+(2026-07-02). The gist declares no licence; the attribution here, plus the
+note at the skill's own foot, records the provenance as accurately as the
+source allows. The sections (Background / Intuition / Code / Quiz) and the
+HTML format rules are his, near-verbatim. What this kit changed follows the
+same pattern as the six above — one project's specifics replaced by the kit's
+artifacts: a branch scope lock in the style of `/review-pr`, grounding in
+`docs/domain-glossary.md` and `docs/adr/`, quiz answer-position randomization
+(a fix the gist's own comment thread surfaced), an explicit
+explain-never-review boundary, a restatement of the agent trust boundary over
+the explained material, HTML-escaping + CSP requirements for diff-derived
+content, a `$TMPDIR`-resolved output location in place of the gist's bare
+`/tmp`, and a secret-redaction rule for the generated page.
+
+Its `MICROWORLDS.md` sidecar is the kit's own writing, not part of the gist:
+a catalog of playable-explanation patterns whose sources are credited, with
+links, in the sidecar's own footer.
+
 ---
 
 ```

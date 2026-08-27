@@ -10,10 +10,14 @@ The rendering is yours. Pick the richest one your project can actually view:
 
 - **A single HTML file** when someone will open it in a browser — the diagrams
   carry the argument, and a picture of a shallow module beside a deep one lands
-  in a way a bullet list does not. The worked scaffold below is that rendering.
+  in a way a bullet list does not. The worked scaffold below is that rendering,
+  and its diagrams are **inline SVG** — hand-authored vector boxes, bands and
+  arrows, never ASCII art (code craft §10, `constitution/shared-code-craft.md`).
 - **A markdown file** when the review will be read in a terminal, pasted into a
   ticket, or folded into a decision record. The same cards, the same order,
-  diagrams as fenced diagram-language blocks or ASCII.
+  diagrams as fenced diagram-language blocks that the forge renders — never
+  ASCII drawings. If the argument leans on its diagrams, prefer the HTML
+  rendering, where they can be real drawings.
 
 What does not change with the rendering: the cards, their fields, the
 before/after comparison, and the vocabulary discipline at the bottom of this
@@ -48,6 +52,10 @@ redraw the diagram.
 
 Pick the pattern that fits the candidate. Mix them. Don't make every diagram look
 the same — variety is part of the point.
+
+Whatever the pattern, in the HTML rendering every diagram is an inline `<svg>`
+element: SVG scales, diffs as text, inherits the page's fonts, and needs no
+network or runtime to render. Never ASCII art, and no rasterized screenshots.
 
 ### Node-and-edge graph (the workhorse for dependencies / call flow)
 
@@ -122,11 +130,11 @@ one.
 
 ## Worked example: a single HTML file
 
-One rendering, not the rule. It reaches for a utility CSS framework and a
-diagram library over the network, which buys a lot of visual quality for very
-little markup — and costs a network connection at *view* time. If the review
-will be read somewhere without one, or your project's conventions forbid
-third-party origins, write the markdown rendering instead; nothing above changes.
+One rendering, not the rule — but a fully self-contained one: every style is
+inline and every diagram is a hand-authored inline `<svg>`, so the file renders
+identically from a laptop, a ticket attachment, or an airgapped machine. No
+CDN, no diagram library, no network at *view* time — the "self-contained" half
+of the obligation at the top of this file, taken literally.
 
 ```html
 <!doctype html>
@@ -134,25 +142,40 @@ third-party origins, write the markdown rendering instead; nothing above changes
   <head>
     <meta charset="utf-8" />
     <title>Architecture review — the repo's name</title>
-    <!-- utility CSS framework, from a CDN -->
-    <!-- diagram library, from a CDN, initialised to render on load -->
     <style>
-      /* small custom layer for what utility classes don't cover cleanly:
-         dashed seam lines, hand-drawn-feeling arrow heads, etc. */
+      /* one inline stylesheet: page layout, the card grid, and the few
+         diagram classes the SVGs share */
       .seam { stroke-dasharray: 4 4; }
-      .leak { stroke: #dc2626; }
-      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); }
+      .leak { stroke: #dc2626; marker-end: url(#arrow-leak); }
+      .deep { fill: #0f172a; }
+      .module { fill: #fff; stroke: #334155; }
+      .label { font: 600 10px/1 monospace; letter-spacing: 0.08em; }
     </style>
   </head>
   <body>
     <main>
       <header>…</header>
-      <section id="candidates">…</section>
+      <section id="candidates">
+        <!-- per card, the before/after pair: two inline SVGs side by side -->
+        <figure>
+          <svg viewBox="0 0 320 200" role="img" aria-label="Before: six shallow modules, pricing leaking across the seam">
+            <rect class="module" x="…" y="…" width="…" height="…" />
+            <line class="seam" x1="…" y1="…" x2="…" y2="…" />
+            <line class="leak" x1="…" y1="…" x2="…" y2="…" />
+            <text class="label" x="…" y="…">ORDER INTAKE</text>
+          </svg>
+          <svg viewBox="0 0 320 200" role="img" aria-label="After: one deep module">…</svg>
+        </figure>
+      </section>
       <section id="top-recommendation">…</section>
     </main>
   </body>
 </html>
 ```
+
+Give every `<svg>` a `viewBox` (so the pair scales to sit side by side), a
+`role="img"`, and an `aria-label` that states the diagram's one-sentence claim —
+the label doubles as the check that the diagram *has* one claim.
 
 Write it to `<tmpdir>/architecture-review-<timestamp>.html`, resolving the temp
 directory from `$TMPDIR` and falling back to `/tmp` (or `%TEMP%` on Windows).
@@ -160,7 +183,7 @@ Open it with the platform's own opener — `xdg-open` on Linux, `open` on macOS,
 `start` on Windows — and give the absolute path either way, because the opener is
 the part most likely to fail silently.
 
-The only scripts in the page are the two library loads. The page is otherwise
-static: no application code, no interactivity beyond the diagram library's own
-rendering. A review that needs a runtime is not a review, it's a tool, and a tool
-belongs in the repo where it can be tested.
+The page carries no scripts at all: the diagrams are static SVG and the styles
+are inline, so nothing has to load, initialise, or be reachable. A review that
+needs a runtime is not a review, it's a tool, and a tool belongs in the repo
+where it can be tested.
