@@ -463,14 +463,24 @@
    {:title (str "Sign in — " brand)
     :clerk clerk
     :data {:data-page "sign-in" :data-return-to return-to}}
-   [:section {:class (classes container "pb-24 pt-12 sm:pt-16")}
-    (page-heading "Sign in" "Sign in with Google to open your library.")
+   ;; A gate is not a marketing page: one column, centred, nothing beside it to
+    ;; look at. `page-heading`'s left-aligned pair belongs on pages that carry
+    ;; content below them, so this page sets its own centred heading instead.
+    [:section {:class "mx-auto flex w-full max-w-md flex-col items-center px-6 py-16 sm:py-24"}
+    [:div {:class "text-center"}
+     [:p {:class (classes "mb-3" eyebrow "text-amber-700")} "Sign in"]
+     [:h1 {:class "font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
+      "Open your library"]
+     [:p {:class "mx-auto mt-4 max-w-sm text-base leading-relaxed text-stone-600"}
+      "Searching the catalog is open to everyone. Sign in to keep the books"
+      " you find."]]
     (if clerk
       ;; ClerkJS mounts its sign-in component here; until it does, this says so
-      ;; rather than showing an empty page.
-      [:div {:id "sign-in" :class "mt-8 flex justify-center"}
+      ;; rather than showing an empty page. `w-full` matters: the mounted card
+      ;; sizes itself, and without a full-width flex parent it hugs the left.
+      [:div {:id "sign-in" :class "mt-10 flex w-full justify-center"}
        [:p {:class "text-sm text-stone-500" :role "status"} "Loading the sign-in form…"]]
-      [:div {:class (classes "mt-8" "rounded-2xl border border-dashed border-stone-300 p-8 text-center")}
+      [:div {:class (classes "mt-10 w-full" card "border-dashed p-8 text-center")}
        [:p {:class "font-serif text-lg text-stone-900"} "Sign-in is not configured here."]
        [:p {:class "mt-2 text-sm text-stone-600"}
         "This deployment has no Clerk instance, so nobody can sign in and every"
