@@ -9,11 +9,18 @@
   Where the database comes from — and the command that starts one — is in
   `books.test-db`."
   (:require [books.bookmarks :as bookmarks]
+            [books.clerk :as clerk]
             [books.db :as db]
+            [books.handler :as handler]
+            [books.stub-book-search :as stub]
             [books.test-db :as test-db]
+            [books.test-jwt :as test-jwt]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
-            [next.jdbc :as jdbc]))
+            [next.jdbc :as jdbc])
+  (:import (java.io ByteArrayInputStream)
+           (java.net URLEncoder)
+           (java.nio.charset StandardCharsets)))
 
 (use-fixtures :once test-db/migrated-fixture)
 (use-fixtures :each test-db/empty-bookmarks-fixture)
@@ -159,3 +166,195 @@
   ;; running database-less (DB_OPTIONAL, ADR-0003 clause 7) has no Bookmarks to
   ;; report, and the search page must still render.
   (is (= #{} (bookmarks/bookmarked-ids nil reader-a ["anything"]))))
+
+;; ---------------------------------------------------------------------------
+;; The toggle, at the handler seam.
+;;
+;; A Ring request in, a response map out, against the real Postgres above and
+;; the REAL Clerk verifier — the same signature check, `azp` comparison and
+;; expiry arithmetic production runs, given only the throwaway key set in
+;; `books.test-jwt`. A Reader is a signed token here, never a parameter, which
+;; is the only way the isolation tests below mean anything.
+;; ---------------------------------------------------------------------------
+
+(def ^:private bookmarks-uri "/bookmarks")
+
+(defn- app
+  "The app under test: this suite's Postgres, and the gate a deploy really runs."
+  []
+  (handler/make-app (ds)
+                    {:book-search (stub/found [brave-and-true nameless])
+                     :publishable-key test-jwt/publishable-key
+                     :session-check (clerk/session-check
+                                     {:publishable-key test-jwt/publishable-key
+                                      :authorized-party test-jwt/authorized-party
+                                      :fetch (fn [_url] (test-jwt/jwks))})}))
+
+(defn- token-for
+  "A valid session token identifying `reader-id`. The Reader IS the `sub`
+  claim, so this is the whole of what makes two Readers two."
+  [reader-id]
+  (test-jwt/token {:sub reader-id}))
+
+(defn- encode [value]
+  (URLEncoder/encode (str value) StandardCharsets/UTF_8))
+
+(defn- volume-form
+  "The form the results card carries, urlencoded. The authors repeat the same
+  name, which is how a list travels through a form and what the handler has to
+  read back."
+  [{:keys [id title authors published-date thumbnail]}]
+  (->> (concat [["volume" id]]
+               (when title [["title" title]])
+               (map (fn [author] ["author" author]) authors)
+               (when published-date [["published-date" published-date]])
+               (when thumbnail [["thumbnail" thumbnail]]))
+       (map (fn [[name value]] (str name "=" (encode value))))
+       (str/join "&")))
+
+(defn- toggle
+  "POST or DELETE /bookmarks, driven the way htmx really drives it: a POST puts
+  its parameters in the body, a DELETE in the URL (htmx 2's
+  `methodsThatUseUrlParams` is `[\"get\" \"delete\"]`)."
+  [method volume {:keys [token cookie]}]
+  (let [encoded (volume-form volume)
+        headers (cond-> {"hx-request" "true"}
+                  (= :post method) (assoc "content-type" "application/x-www-form-urlencoded")
+                  token (assoc "authorization" (str "Bearer " token))
+                  cookie (assoc "cookie" (str "__session=" cookie)))]
+    ((app) (cond-> {:request-method method :uri bookmarks-uri :headers headers}
+             (= :post method) (assoc :body (ByteArrayInputStream.
+                                            (.getBytes encoded "UTF-8")))
+             (= :delete method) (assoc :query-string encoded)))))
+
+(defn- control-state
+  "The state the returned bookmark control rendered in — the one marker the
+  toggle tests assert on, exactly as the results region carries `data-state`."
+  [response]
+  (second (re-find #"data-bookmark=\"([a-z-]+)\"" (str (:body response)))))
+
+(defn- search-page
+  "GET /search as `reader-id`, as a whole page."
+  [reader-id]
+  ((app) {:request-method :get :uri "/search" :query-string "title=clojure"
+          :headers {"authorization" (str "Bearer " (token-for reader-id))}}))
+
+(defn- card-states
+  "Volume id -> the state its bookmark control rendered in, across the page.
+  Read off the control's own two markers, so neither the order of the cards nor
+  the order of the attributes can make this pass by accident."
+  [response]
+  (into {}
+        (map (fn [control]
+               [(second (re-find #"data-volume=\"([^\"]+)\"" control))
+                (second (re-find #"data-bookmark=\"([a-z-]+)\"" control))]))
+        (re-seq #"<form\b[^>]*data-bookmark[^>]*>" (str (:body response)))))
+
+;; ---------------------------------------------------------------------------
+;; Bookmarking and unbookmarking, in place
+;; ---------------------------------------------------------------------------
+
+(deftest bookmarking-a-result-flips-its-control-and-stores-the-volume
+  (let [response (toggle :post brave-and-true {:token (token-for reader-a)})]
+    (is (= 200 (:status response)))
+    (is (= "bookmarked" (control-state response)))
+    (testing "the answer is the control alone, for htmx to swap in place"
+      (is (not (str/includes? (str (:body response)) "<html")))
+      (is (not (str/includes? (str (:body response)) "id=\"results\""))))
+    (testing "and the Volume is now kept, snapshot and all"
+      (let [[row] (rows-for reader-a)]
+        (is (= "3IGvBQAAQBAJ" (:bookmarks/volume_id row)))
+        (is (= "Clojure for the Brave and True" (:bookmarks/title row)))
+        (is (= ["Daniel Higginbotham" "A Second Author"]
+               (vec (.getArray ^java.sql.Array (:bookmarks/authors row))))
+            "the repeated form field arrives as a list, not as one joined string")))))
+
+(deftest unbookmarking-flips-the-control-back-and-drops-the-row
+  (bookmarks/save! (ds) reader-a brave-and-true)
+  (let [response (toggle :delete brave-and-true {:token (token-for reader-a)})]
+    (is (= 200 (:status response)))
+    (is (= "not-bookmarked" (control-state response)))
+    (is (empty? (rows-for reader-a)))))
+
+(deftest bookmarking-the-same-volume-twice-still-leaves-one-row
+  (testing "a double click, or a second tab, answers the same thing both times"
+    (let [reader (token-for reader-a)
+          first-response (toggle :post brave-and-true {:token reader})
+          second-response (toggle :post brave-and-true {:token reader})]
+      (is (= 200 (:status first-response)))
+      (is (= 200 (:status second-response)))
+      (is (= "bookmarked" (control-state second-response)))
+      (is (= 1 (count (rows-for reader-a)))))))
+
+(deftest a-toggle-that-names-no-volume-changes-nothing
+  (testing "there is no such request a card could make, and it stores nothing"
+    (let [response (toggle :post {} {:token (token-for reader-a)})]
+      (is (= 400 (:status response)))
+      (is (empty? (rows-for reader-a))))))
+
+;; ---------------------------------------------------------------------------
+;; Reader isolation, proved with two signed-in Readers
+;; ---------------------------------------------------------------------------
+
+(deftest one-reader-cannot-remove-anothers-bookmark-over-http
+  (bookmarks/save! (ds) reader-b brave-and-true)
+  (let [response (toggle :delete brave-and-true {:token (token-for reader-a)})]
+    (testing "Reader A's delete touches only Reader A"
+      (is (= 200 (:status response)))
+      (is (= 1 (count (rows-for reader-b))) "Reader B still has their Bookmark")
+      (is (empty? (rows-for reader-a))))))
+
+(deftest one-reader-never-sees-anothers-bookmarks-on-the-results
+  (bookmarks/save! (ds) reader-b brave-and-true)
+  (testing "Reader B's own results show it kept"
+    (is (= "bookmarked" (get (card-states (search-page reader-b)) (:id brave-and-true)))))
+  (testing "and Reader A's show the very same Volume unkept"
+    (is (= "not-bookmarked" (get (card-states (search-page reader-a)) (:id brave-and-true))))))
+
+(deftest the-results-mark-exactly-what-this-reader-has-kept
+  (bookmarks/save! (ds) reader-a brave-and-true)
+  (is (= {(:id brave-and-true) "bookmarked"
+          (:id nameless) "not-bookmarked"}
+         (card-states (search-page reader-a)))))
+
+;; ---------------------------------------------------------------------------
+;; Who may toggle at all
+;; ---------------------------------------------------------------------------
+
+(deftest a-signed-out-toggle-is-refused-and-stores-nothing
+  (let [response (toggle :post brave-and-true {})]
+    (is (= 401 (:status response)) "an htmx request is told to navigate, not redirected")
+    (is (str/starts-with? (get-in response [:headers "HX-Redirect"]) "/sign-in"))
+    (is (empty? (rows-for reader-a)))))
+
+(deftest a-cookie-alone-cannot-change-anything
+  ;; The CSRF case, and the reason ADR-0007 exists: a cross-site form carries
+  ;; our own __session cookie, so its token verifies and its `azp` is ours.
+  ;; Refusing the cookie as a credential for a WRITE is what makes the forgery
+  ;; impossible, and it holds without depending on a cookie attribute Clerk
+  ;; sets and this repo cannot see.
+  (testing "a valid session cookie with no bearer header writes nothing"
+    (let [response (toggle :post brave-and-true {:cookie (token-for reader-a)})]
+      (is (= 401 (:status response)))
+      (is (empty? (rows-for reader-a)))))
+  (testing "and neither does it delete anything"
+    (bookmarks/save! (ds) reader-a brave-and-true)
+    (is (= 401 (:status (toggle :delete brave-and-true {:cookie (token-for reader-a)}))))
+    (is (= 1 (count (rows-for reader-a))))))
+
+(deftest a-cookie-still-reads-a-gated-page
+  ;; The narrowing is on mutations alone: a document navigation carries only the
+  ;; cookie, and reading changes nothing.
+  (let [response ((app) {:request-method :get :uri "/search"
+                         :query-string "title=clojure"
+                         :headers {"cookie" (str "__session=" (token-for reader-a))}})]
+    (is (= 200 (:status response)))))
+
+(deftest a-forged-token-cannot-toggle
+  (testing "the classic forgeries are refused on the write path too"
+    (doseq [forgery [(test-jwt/alg-none-token)
+                     (test-jwt/hs256-token)
+                     (test-jwt/token-signed-by-a-stranger)
+                     (test-jwt/expired-token)]]
+      (is (= 401 (:status (toggle :post brave-and-true {:token forgery}))))
+      (is (empty? (rows-for "user_2readerid"))))))

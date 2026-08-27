@@ -267,10 +267,104 @@
   core since v3.3) does it where the facts are, ellipsis included."
   "line-clamp-3")
 
+;; ---------------------------------------------------------------------------
+;; The bookmark control.
+;;
+;; Two states, named — a card either offers to keep the Volume or says it is
+;; kept, and those two ARE the control. Each carries `data-bookmark`, which is
+;; both what the tests assert on and what tells a reader of this file that the
+;; states are exhaustive, exactly as `data-state` does for the results region.
+;;
+;; The element is a <form> because that is what carries the SNAPSHOT: the Volume
+;; fields a Bookmark keeps travel as hidden fields, and a Volume's authors are a
+;; list, which a repeated field name is the ordinary way to send. htmx submits
+;; it and swaps the answer over the form itself — `hx-target="this"` with
+;; `hx-swap="outerHTML"` — so a toggle replaces the control and nothing else.
+;; There is deliberately no `hx-push-url`: keeping a Volume is not a place a
+;; reader navigated to.
+;;
+;; The form has no `action`, and so does nothing without JavaScript. That is the
+;; cost recorded in ADR-0007: a no-JS toggle would be a plain form POST carrying
+;; only the session cookie, which is the request that decision refuses. Search,
+;; paging and sign-in are unaffected.
+;; ---------------------------------------------------------------------------
+
+(def ^:private bookmark-path
+  "The one endpoint every bookmark control points at."
+  "/bookmarks")
+
+(def ^:private bookmark-button
+  "A control reads as a button, like a paging control — it does something rather
+  than taking the reader somewhere."
+  (str "rounded-lg border px-3 py-1.5 text-sm font-medium "
+       "focus:outline-none focus:ring-2 focus:ring-amber-600/40"))
+
+(def ^:private bookmark-states
+  "The two states a bookmark control has: how each reads, which method toggles
+  it, and how it looks. Named states rather than a `bookmarked?` boolean,
+  because these two ARE the controls a card can render — and because the pressed
+  state has to be visibly and assistively distinct, which is three facts about
+  one state rather than one flag."
+  {:not-bookmarked {:label "Bookmark"
+                    :method :hx-post
+                    :pressed "false"
+                    :class (str bookmark-button
+                                " border-stone-300 bg-white text-stone-700"
+                                " hover:border-amber-600 hover:text-amber-700")}
+   :bookmarked {:label "★ Bookmarked"
+                :method :hx-delete
+                :pressed "true"
+                :class (str bookmark-button
+                            " border-amber-600 bg-amber-600 text-white"
+                            " hover:bg-amber-700 hover:border-amber-700")}})
+
+(defn- snapshot-fields
+  "The Volume a Bookmark keeps, as hidden form fields: the four the card draws,
+  and the id that names it. Each author is its own field under the same name,
+  which is how a list survives a form — and what `books.handler` reads back.
+
+  A field the Catalog did not describe is omitted rather than sent empty, so a
+  bookmarked snapshot holds the same absences the Volume did."
+  [{:keys [id title authors published-date thumbnail]}]
+  (list
+   [:input {:type "hidden" :name "volume" :value id}]
+   (when title [:input {:type "hidden" :name "title" :value title}])
+   (for [author authors] [:input {:type "hidden" :name "author" :value author}])
+   (when published-date [:input {:type "hidden" :name "published-date" :value published-date}])
+   (when thumbnail [:input {:type "hidden" :name "thumbnail" :value thumbnail}])))
+
+(defn- bookmark-control
+  "The control for one Volume, in one of the two `bookmark-states`."
+  [volume state]
+  (let [{:keys [label method pressed] button-class :class} (bookmark-states state)]
+    [:form {:class "mt-3"
+            :data-volume (:id volume)
+            :data-bookmark (name state)
+            method bookmark-path
+            :hx-target "this"
+            :hx-swap "outerHTML"}
+     (snapshot-fields volume)
+     [:button {:type "submit" :class button-class :aria-pressed pressed} label]]))
+
+(defn bookmark-toggle
+  "The control ALONE — what htmx swaps in after a toggle. The same function the
+  card uses, so a toggled control and a freshly rendered one cannot drift."
+  [volume state]
+  (str (h/html (bookmark-control volume state))))
+
+(defn- bookmark-state
+  "Whether this Reader has kept this Volume: `:bookmarked` or `:not-bookmarked`.
+  The one place a set membership becomes a state name."
+  [bookmarked volume-id]
+  (if (contains? bookmarked volume-id) :bookmarked :not-bookmarked))
+
 (defn- volume-card
-  "One Volume. Every string here comes from the catalog and is therefore
-  escaped by hiccup2 — no `h/raw`, ever."
-  [{:keys [title authors published-date description thumbnail]}]
+  "One Volume, and the control for keeping it. `bookmarked` is the set of Volume
+  ids this Reader has already bookmarked.
+
+  Every string here comes from the catalog and is therefore escaped by hiccup2 —
+  no `h/raw`, ever."
+  [bookmarked {:keys [id title authors published-date description thumbnail] :as volume}]
   [:li {:class (classes "flex gap-4" card "p-5")}
    [:div {:class "hidden w-16 shrink-0 sm:block"}
     (if thumbnail
@@ -285,7 +379,8 @@
      (when published-date [:span {:class "text-stone-400"} " · " published-date])]
     (when (seq description)
       [:p {:class (classes "mt-2 text-sm leading-relaxed text-stone-600" description-clamp)}
-       description])]])
+       description])
+    (bookmark-control volume (bookmark-state bookmarked id))]])
 
 ;; ---------------------------------------------------------------------------
 ;; Paging. A control is a real link first: the no-JS path moves through the
@@ -382,22 +477,24 @@
 
 (defn- volume-list
   "The Volumes on this page, and the way off it."
-  [query volumes]
-  (list (into [:ul {:class "flex flex-col gap-4"}] (map volume-card volumes))
+  [query volumes bookmarked]
+  (list (into [:ul {:class "flex flex-col gap-4"}]
+              (map (partial volume-card bookmarked) volumes))
         (paging-nav query volumes)))
 
 (defn- results-region
   "The swappable region. `state` is what a **Book search** answered (see
   `books.catalog` for the contract), or `{:outcome :prompt}` when there was
   nothing to search for; `query` is what it answered, which is what the paging
-  controls carry forward."
-  [query {:keys [outcome reason volumes]}]
+  controls carry forward. `bookmarked` is the set of Volume ids the current
+  Reader has already kept."
+  [query {:keys [outcome reason volumes]} bookmarked]
   (let [[data-state content]
         (case outcome
           :prompt ["prompt" (notice :prompt)]
           :error ["error" (notice reason)]
           (if (seq volumes)
-            ["results" (volume-list query volumes)]
+            ["results" (volume-list query volumes bookmarked)]
             ["empty" (notice :empty)]))]
     [:div {:id "results"
            :data-state data-state
@@ -410,14 +507,14 @@
 (defn search-results
   "The results region ALONE — what htmx swaps in. Same function the page uses,
   so the two can never drift into rendering different things."
-  [query state]
-  (str (h/html (results-region query state))))
+  [query state bookmarked]
+  (str (h/html (results-region query state bookmarked))))
 
 (defn search-page
   "The whole search page: the form (refilled from `query`) and the results
   region already in `state`, so a plain form GET or a shared URL answers with
   its results rather than an empty shell."
-  [clerk query state]
+  [clerk query state bookmarked]
   (layout
    {:title (str "Search — " brand)
     :clerk clerk}
@@ -426,7 +523,7 @@
     [:h1 {:class "max-w-2xl font-serif text-3xl leading-tight text-stone-900 sm:text-4xl"}
      "Find a book by title, by author, or by both."]
     [:div {:class "mt-8"} (search-form query)]
-    (results-region query state)]))
+    (results-region query state bookmarked)]))
 
 ;; ---------------------------------------------------------------------------
 ;; Sign-in, and the one page behind it.

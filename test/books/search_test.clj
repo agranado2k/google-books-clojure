@@ -131,6 +131,23 @@
     (testing "a sparsely described Volume still renders, without empty furniture"
       (is (str/includes? (body response) "Programming Clojure")))))
 
+(deftest every-result-carries-a-bookmark-control
+  ;; This app is wired database-less, so the control has to render for a Reader
+  ;; who has kept nothing — which is also every Reader's first search.
+  (let [rendered (body (search (stub/found [stub/brave-and-true]) "title=clojure" {:htmx? true}))]
+    (is (str/includes? rendered "data-bookmark=\"not-bookmarked\""))
+    (testing "submitting to the bookmarks endpoint and swapping only itself"
+      (is (str/includes? rendered "hx-post=\"/bookmarks\""))
+      (is (str/includes? rendered "hx-target=\"this\"")))
+    (testing "carrying the snapshot a Bookmark keeps"
+      (is (str/includes? rendered "name=\"volume\""))
+      (is (str/includes? rendered "3IGvBQAAQBAJ"))
+      (is (str/includes? rendered "name=\"author\""))
+      (testing "…and not the one field ADR-0006 deliberately does not store"
+        (is (not (str/includes? rendered "name=\"description\"")))))
+    (testing "and pushing no history entry — keeping a Volume is not a place"
+      (is (nil? (re-find #"<form[^>]*hx-post[^>]*hx-push-url" rendered))))))
+
 ;; The two fallbacks on the card — "Untitled" and "Author unknown" — read like
 ;; defensive dead code and are not: the adapter omits `:title` and `:authors`
 ;; whenever the catalog omits them (see `books.stub-book-search/nameless`), so
@@ -417,6 +434,25 @@
 ;; Escaping. The catalog's descriptions contain HTML; ours must not.
 ;; ---------------------------------------------------------------------------
 
+(defn- attribute-values-blanked
+  "The rendered markup with every quoted attribute VALUE emptied out, so what is
+  left is markup structure alone.
+
+  The property under test is that no catalog string becomes an event-handler
+  ATTRIBUTE. Matching ` on…=` against the raw document was a good enough proxy
+  while every catalog string landed in element text — and stopped being one when
+  the bookmark control started carrying the Volume snapshot as hidden field
+  values, because an escaped `<img src=x onerror=…>` sitting inside a quoted
+  value contains that very substring while being completely inert.
+
+  Blanking the values first is the sharper reading rather than a weaker one: an
+  attacker who broke OUT of a value would leave `onerror=` outside the quotes,
+  where this still sees it. It is sound because hiccup2 escapes a quote in any
+  string it renders, so every `\"` in the document is an attribute delimiter and
+  the pairs cannot slip."
+  [rendered]
+  (str/replace rendered #"\"[^\"]*\"" "\"\""))
+
 (deftest catalog-supplied-html-is-escaped-everywhere-it-lands
   (let [hostile {:id "x"
                  :title "<script>alert('title')</script>"
@@ -432,7 +468,7 @@
       ;; quoted attribute value, where they are inert. What must not exist is
       ;; an `onerror` that is its own ATTRIBUTE, which needs whitespace before
       ;; it and therefore a quote the escaping let through.
-      (is (nil? (re-find #"<[a-z]+[^>]*\son[a-z]+=" rendered))))
+      (is (nil? (re-find #"<[a-z]+[^>]*\son[a-z]+=" (attribute-values-blanked rendered)))))
     (testing "it is rendered — escaped — rather than silently dropped"
       (is (str/includes? rendered "&lt;script&gt;"))
       (is (str/includes? rendered "&lt;b&gt;Bold&lt;/b&gt;")))
