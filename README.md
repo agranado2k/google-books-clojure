@@ -137,31 +137,50 @@ amended 2026-08-10 to cover the API key as well as the database).
 
 **CI deploys. A merge to `main` does not.** The `deploy` job in
 `.github/workflows/ci.yml` runs on push to `main` *after* the `test` and
-`docs-gate` jobs are green, and runs
-`railway up --service google-books-clojure --detach`. A red `main` therefore
-never reaches production, and a pull request — from a fork or otherwise — can
-never deploy: the job is guarded on both the event name and the ref.
+`docs-gate` jobs are green. It makes two calls to Railway's GraphQL API — one
+`serviceInstanceDeployV2` mutation that asks Railway to deploy
+**`github.sha`**, the exact commit CI just proved green, and then a poll of that
+deployment until it reaches a terminal state. A red `main` therefore never
+reaches production, and a pull request — from a fork or otherwise — can never
+deploy: the job is guarded on both the event name and the ref.
 
 This replaces Railway's own GitHub push integration, which never fired for this
-repo. The reasoning, the trade-offs, and the failure modes are in **ADR-0008**
+repo: the Railway GitHub App is not installed, so the service has **zero
+deployment triggers** and nothing was listening to a push. The reasoning, the
+rejected alternatives, and the failure modes are in **ADR-0008**
 (`docs/adr/0008-ci-triggers-the-railway-deploy.md`).
 
-Two things are worth knowing before you touch it:
+Four things are worth knowing before you touch it:
 
-- **`--service` is load-bearing.** Without it an earlier deploy resolved to the
-  project's Postgres service and took the database down. Never omit it.
+- **The commit is named, and that is the whole point.** The predecessor of this
+  job ran `railway up`, which uploads the runner's working directory as a
+  tarball and sends no commit metadata — its deployments record `commit = none`.
+  Deploying by sha means the Railway deployment says which revision is in
+  production, and the source comes from the repo rather than from a runner.
+- **The service id is load-bearing.** The workflow hardcodes the **app**
+  service's id. An earlier deploy that let Railway resolve the service by
+  default hit the project's Postgres service and took the database down. The
+  project, environment and service ids in the file are *not* credentials — only
+  the token is.
+- **Green means deployed.** The job holds open until Railway reports `SUCCESS`,
+  fails on `FAILED`/`CRASHED`, and gives up after 15 minutes with a message
+  rather than hanging. A GraphQL error — which arrives as HTTP 200 with an
+  `errors` array — fails the job rather than passing quietly.
 - **A missing `RAILWAY_TOKEN` is a skip, not a failure.** The job prints a
   notice and passes, so forks and token-less clones stay green — which also
   means a revoked token looks like a healthy pipeline. After a merge, confirm in
   the Railway console that a deployment actually started.
 
 To enable deploys, an operator creates one repository secret (no token value
-lives in this repo):
+lives in this repo). **No GitHub App install is needed** — the service's
+existing source connection to this repo is what lets Railway fetch the commit:
 
-1. **Railway → the project → Settings → Tokens** → create a **project token**
-   scoped to the production environment. Prefer a project token over a personal
-   account token: it reaches this project only, and it does not belong to a
-   person who might leave.
+1. **Railway → the project → Settings → Tokens** → create a **project token**,
+   scoped to this project and the **`production`** environment. It must be a
+   *project* token, not a personal/account one: the workflow sends it as the
+   `Project-Access-Token` header, which is the project-token form. A project
+   token also reaches this project only, and does not belong to a person who
+   might leave.
 2. **GitHub → the repo → Settings → Secrets and variables → Actions → New
    repository secret**, named `RAILWAY_TOKEN`, with that value.
 

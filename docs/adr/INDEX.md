@@ -21,7 +21,7 @@ alone answers "what is currently binding?" without opening 40 files.
 | [0003](0003-persistence-next-jdbc-migratus-postgres.md) | Persist on Railway PostgreSQL via next.jdbc and Migratus, migrating at boot | Accepted 2026-08-09, amended 2026-08-10 (clause 2's credentials-never-in-URLs rule binds the Books API key too) |
 | [0004](0004-server-rendered-ui-hiccup-tailwind.md) | Render the UI on the server with Hiccup2 and build its CSS with the standalone Tailwind CLI | Accepted 2026-08-09, amended 2026-08-10 (second scoped static root `/js/` for a vendored, digest-pinned htmx); clause 7's security-header non-goal taken up by 0005 |
 | [0005](0005-clerk-sign-in-third-party-script-and-security-headers.md) | Sign readers in with Clerk — a third-party script on every page, and the security headers that bound it | Accepted 2026-08-27 |
-| [0008](0008-ci-triggers-the-railway-deploy.md) | Trigger the Railway deploy from CI, gated on green checks | Accepted 2026-08-27, reverses in part the 2026-08-09 diary decision below |
+| [0008](0008-ci-triggers-the-railway-deploy.md) | Trigger the Railway deploy from CI, by API, naming the commit | Accepted 2026-08-27, reverses in part the 2026-08-09 diary decision below |
 
 <!--
 0006 and 0007 are claimed by in-flight work on `feat/bookmark-volume` and are
@@ -57,5 +57,7 @@ leave a back-reference in the diary entry.
 - **2026-08-09** — Deploys via Railway's native GitHub integration; GitHub
   Actions is CI-only (tests, docs gate, TDD pairing guard). See the diary
   entry of that date. **Reversed in part by ADR-0008 (2026-08-27)**: the
-  webhook never fired for this repo, so CI now triggers the deploy — after the
-  gate jobs are green. What ADR-0002 decides about packaging is untouched.
+  integration never fired for this repo — the Railway GitHub App is not
+  installed, so the service has zero deployment triggers — and CI now asks
+  Railway's API to deploy the green commit by sha. What ADR-0002 decides about
+  packaging is untouched.
