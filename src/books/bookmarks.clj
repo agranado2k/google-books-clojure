@@ -20,7 +20,7 @@
   a database."
   (:require [next.jdbc :as jdbc]
             [next.jdbc.result-set :as rs])
-  (:import (java.sql Connection)))
+  (:import (java.sql Array Connection)))
 
 (defn- text-array
   "`values` as a Postgres `text[]` parameter.
@@ -55,6 +55,45 @@
   (jdbc/execute-one! datasource
                      ["delete from bookmarks where reader_id = ? and volume_id = ?"
                       reader-id volume-id]))
+
+(defn- snapshot
+  "One row as the Volume shape a card draws — the snapshot and nothing else, so
+  a page built from these never reaches the Catalog (ADR-0006 clause 4).
+
+  `authors` is a Postgres array, which arrives as a JDBC handle rather than a
+  list; the column is `not null default '{}'`, so an authorless Volume reads as
+  an empty vector rather than a nil a caller has to guard."
+  [{:keys [volume_id title authors thumbnail published_date]}]
+  {:id volume_id
+   :title title
+   :authors (vec (.getArray ^Array authors))
+   :thumbnail thumbnail
+   :published-date published_date})
+
+(defn for-reader
+  "Every Bookmark `reader-id` keeps, as Volumes, most recently bookmarked first.
+
+  That order is the only one a reader can predict: the last thing they kept is
+  the thing they came back for. `volume_id` breaks the tie, because two rows
+  written by one statement share a `bookmarked_at` to the microsecond and an
+  unordered tie would reshuffle the page between two identical requests.
+
+  Unbounded on purpose — ADR-0006 caps nothing, and paging a list nobody has
+  yet filled is a decision for the ticket that measures one.
+
+  A deployment with no database has no Bookmarks to list, which is the answer
+  `bookmarked-ids` and `books.db/check` both give a nil datasource."
+  [datasource reader-id]
+  (if (nil? datasource)
+    []
+    (mapv snapshot
+          (jdbc/execute! datasource
+                         ["select volume_id, title, authors, thumbnail, published_date
+                           from bookmarks
+                           where reader_id = ?
+                           order by bookmarked_at desc, volume_id"
+                          reader-id]
+                         {:builder-fn rs/as-unqualified-lower-maps}))))
 
 (defn bookmarked-ids
   "Which of `volume-ids` `reader-id` has already bookmarked, as a set.

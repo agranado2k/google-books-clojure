@@ -168,6 +168,68 @@
   (is (= #{} (bookmarks/bookmarked-ids nil reader-a ["anything"]))))
 
 ;; ---------------------------------------------------------------------------
+;; Everything one Reader keeps — what the bookmarks page is drawn from
+;; ---------------------------------------------------------------------------
+
+(deftest for-reader-answers-the-stored-snapshot
+  (testing "the four snapshot fields come back as the Volume shape a card draws"
+    (bookmarks/save! (ds) reader-a brave-and-true)
+    (is (= [{:id "3IGvBQAAQBAJ"
+             :title "Clojure for the Brave and True"
+             :authors ["Daniel Higginbotham" "A Second Author"]
+             :thumbnail "https://books.example.test/cover.jpg"
+             :published-date "2015-10-15"}]
+           (bookmarks/for-reader (ds) reader-a)))))
+
+(deftest for-reader-answers-a-barely-described-volume-too
+  (testing "the absences a thin catalog entry stored come back as absences"
+    (bookmarks/save! (ds) reader-a nameless)
+    (is (= [{:id "kQ7fAAAAMAAJ"
+             :title nil
+             :authors []
+             :thumbnail nil
+             :published-date nil}]
+           (bookmarks/for-reader (ds) reader-a)))))
+
+(deftest for-reader-answers-most-recently-bookmarked-first
+  ;; The order is `bookmarked_at desc`, which is the only order a reader can
+  ;; predict: the last thing they kept is the thing they are looking for.
+  (let [saved-at (fn [volume-id at]
+                   (jdbc/execute-one! (ds)
+                                      ["insert into bookmarks (reader_id, volume_id, bookmarked_at)
+                                        values (?, ?, ?::timestamptz)"
+                                       reader-a volume-id at]))]
+    (saved-at "oldest" "2026-01-01T00:00:00Z")
+    (saved-at "newest" "2026-03-01T00:00:00Z")
+    (saved-at "middle" "2026-02-01T00:00:00Z")
+    (is (= ["newest" "middle" "oldest"] (mapv :id (bookmarks/for-reader (ds) reader-a))))))
+
+(deftest for-reader-orders-a-tie-by-volume-id
+  ;; Two rows written in the same statement share a `bookmarked_at` to the
+  ;; microsecond. Without the second sort key the planner picks, and the page
+  ;; would reshuffle itself between two identical requests.
+  (jdbc/execute-one! (ds)
+                     ["insert into bookmarks (reader_id, volume_id, bookmarked_at)
+                       values (?, 'b', now()), (?, 'a', now()), (?, 'c', now())"
+                      reader-a reader-a reader-a])
+  (is (= ["a" "b" "c"] (mapv :id (bookmarks/for-reader (ds) reader-a)))))
+
+(deftest for-reader-answers-only-this-readers-bookmarks
+  (bookmarks/save! (ds) reader-a brave-and-true)
+  (bookmarks/save! (ds) reader-b nameless)
+  (is (= [(:id brave-and-true)] (mapv :id (bookmarks/for-reader (ds) reader-a))))
+  (is (= [(:id nameless)] (mapv :id (bookmarks/for-reader (ds) reader-b)))))
+
+(deftest for-reader-answers-nothing-for-a-reader-who-has-kept-nothing
+  (bookmarks/save! (ds) reader-b brave-and-true)
+  (is (= [] (bookmarks/for-reader (ds) reader-a))))
+
+(deftest for-reader-without-a-database-answers-nothing
+  ;; The posture `bookmarked-ids` and `books.db/check` both take for a nil
+  ;; datasource: a deployment running database-less has no Bookmarks to list.
+  (is (= [] (bookmarks/for-reader nil reader-a))))
+
+;; ---------------------------------------------------------------------------
 ;; The toggle, at the handler seam.
 ;;
 ;; A Ring request in, a response map out, against the real Postgres above and
