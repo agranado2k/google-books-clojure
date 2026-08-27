@@ -41,8 +41,18 @@
   the answered page starts at, absent for the first page. It arrived as another
   key on the query map, which is why the query is a map rather than two
   positional arguments — and why the port is a function of ONE argument rather
-  than a protocol whose only method would have to grow a parameter."
+  than a protocol whose only method would have to grow a parameter. A search
+  answers at most `page-size` Volumes, which is what lets `page-position` tell
+  a full page from a final one."
   (:require [clojure.string :as str]))
+
+(def page-size
+  "How many Volumes one results page holds — the ONE owner of that number, read
+  by the adapter (as the Catalog's `maxResults`) and by `page-position`, which
+  can only tell a full page from a final one while the two agree.
+
+  The Catalog's own ceiling is 40; 20 is what the results list shows."
+  20)
 
 (def ^:private search-fields
   "The fields that say WHAT to search for. `:start-index` is deliberately not
@@ -98,6 +108,34 @@
   count: `/search?start=40` with nothing typed is still nothing to search for."
   [query]
   (not-any? query search-fields))
+
+(def ^:private page-positions
+  "The four places a page can sit in a run of pages, keyed by whether there are
+  pages before it and pages after it. The table is the one spot those two facts
+  are read as a pair; everywhere else the position travels under its name."
+  {[false false] :only-page
+   [false true] :first-page
+   [true true] :middle-page
+   [true false] :last-page})
+
+(defn page-position
+  "Where the page of `volumes` that answered `query` sits: `:only-page`,
+  `:first-page`, `:middle-page` or `:last-page`. A named state rather than a
+  pair of booleans, because these four ARE the sets of paging controls a
+  results region can offer.
+
+  **There is a page after this one exactly when the Catalog filled this one.**
+  The Catalog also answers a `totalItems` count and it is deliberately unused:
+  Google documents it as an estimate, it fluctuates between identical requests,
+  and a control derived from it points at pages that do not exist. A filled
+  page is a fact about the response we are holding.
+
+  The price of that honesty is one case: when the matches run out on an exact
+  multiple of `page-size`, the final full page still offers a next page, and it
+  answers the empty state."
+  [{:keys [start-index]} volumes]
+  (page-positions [(pos? (or start-index 0))
+                   (<= page-size (count volumes))]))
 
 (def not-configured
   "The Book search used when nothing has been wired in: every search is an

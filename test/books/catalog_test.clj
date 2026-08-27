@@ -48,6 +48,44 @@
     (is (true? (catalog/blank-query? (catalog/query {:start-index "40"}))))
     (is (true? (catalog/blank-query? {:start-index 40})))))
 
+;; ---------------------------------------------------------------------------
+;; Where a page sits in the run of pages
+;; ---------------------------------------------------------------------------
+
+(def ^:private a-volume {:id "3IGvBQAAQBAJ"})
+
+(defn- page-of
+  "`n` Volumes — enough of a page for the position derivation, which counts
+  them and reads nothing else."
+  [n]
+  (vec (repeat n a-volume)))
+
+(deftest a-results-page-stays-inside-the-catalogs-own-ceiling
+  (testing "one number, and one the Catalog will accept as maxResults"
+    (is (<= 1 catalog/page-size 40))))
+
+(deftest page-position-names-which-way-a-reader-can-move
+  (let [full (page-of catalog/page-size)
+        short (page-of 3)
+        second-page {:title "Clojure" :start-index catalog/page-size}]
+    (testing "a first page the Catalog filled has a page after it and none before"
+      (is (= :first-page (catalog/page-position {:title "Clojure"} full))))
+    (testing "a first page the Catalog could not fill is the only page there is"
+      (is (= :only-page (catalog/page-position {:title "Clojure"} short))))
+    (testing "a filled page part way in has pages on both sides"
+      (is (= :middle-page (catalog/page-position second-page full))))
+    (testing "a short page part way in is the end of the run"
+      (is (= :last-page (catalog/page-position second-page short))))
+    (testing "…and so is an empty one, which is a last page rather than a first"
+      (is (= :last-page (catalog/page-position second-page []))))))
+
+(deftest a-filled-page-is-what-says-another-page-exists
+  (testing "one Volume short of a full page is the end, however many that is"
+    ;; The signal is the page the Catalog FILLED, never a total it estimated —
+    ;; see `page-position`. So the boundary sits exactly at `page-size`.
+    (is (= :first-page (catalog/page-position {} (page-of catalog/page-size))))
+    (is (= :only-page (catalog/page-position {} (page-of (dec catalog/page-size)))))))
+
 (deftest not-configured-book-search-answers-an-error-rather-than-throwing
   (testing "with no Book search wired the search surface degrades, it does not crash"
     (is (= {:outcome :error :reason :not-configured}
