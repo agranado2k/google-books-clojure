@@ -123,12 +123,13 @@
   [book-search clerk]
   (fn [request]
     (let [query (catalog/query {:title (get-in request [:params "title"])
-                                :author (get-in request [:params "author"])})
+                                :author (get-in request [:params "author"])
+                                :start-index (get-in request [:params "start"])})
           state (if (catalog/blank-query? query)
                   {:outcome :prompt}
                   (book-search query))]
       (-> (html (if (fragment-request? request)
-                  (views/search-results state)
+                  (views/search-results query state)
                   (views/search-page clerk query state)))
           (update :headers merge search-cache-headers)))))
 
