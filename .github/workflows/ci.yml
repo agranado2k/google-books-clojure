@@ -11,8 +11,8 @@ name: CI
 #               someone's shell history. The `labeled`/`unlabeled` triggers
 #               exist for that hatch; they re-run the other jobs too — the
 #               accepted cost of one workflow while the suite is seconds long.
-#   deploy      railway up — push-to-main only, and only after test + docs-gate
-#               are green (ADR-0008).
+#   deploy      one curl to Railway's GraphQL API — push-to-main only, and only
+#               after test + docs-gate are green (ADR-0008).
 #
 # pull_request runs the PR's OWN copy of this file and of the guard scripts, so
 # a PR that edits them is checked by its edits. This gates honest mistakes, not
@@ -23,10 +23,11 @@ name: CI
 #
 # Deployment is NO LONGER absent. Railway's native GitHub integration was the
 # recorded decision (docs/diary.md, 2026-08-09) but never fired for this repo —
-# merges produced no deployment — so CI triggers the deploy instead. That
-# reversal is recorded in ADR-0008. Third-party actions are pinned by full
-# commit SHA by analogy with the Dockerfile's digest pins, not because any ADR
-# requires it.
+# the Railway GitHub App is not installed, so the service has zero deployment
+# triggers and merges produced no deployment. CI asks Railway's API to deploy a
+# named commit instead. That reversal is recorded in ADR-0008. Third-party
+# actions are pinned by full commit SHA by analogy with the Dockerfile's digest
+# pins, not because any ADR requires it; the deploy job uses no action at all.
 #
 # ADVISORY, not enforced: this is a private repo without GitHub Pro, so branch
 # protection (required status checks) is unavailable — nothing here can yet
@@ -226,13 +227,27 @@ jobs:
     # would skip this job forever. See ADR-0008.
     needs: [test, docs-gate]
     runs-on: ubuntu-latest
+    # There is NO checkout in this job, and that is deliberate. The deploy is
+    # two API calls; Railway pulls the source itself, from the connected repo,
+    # at the commit named below. Nothing here needs the working tree.
     env:
       # Mapped once at job level for the guard below: the `secrets` context is
       # NOT available in a job-level `if:`, but `env` is available in every
       # step-level `if:` — so this is what makes "no token ⇒ skip, don't fail"
-      # expressible at all. `railway` also reads RAILWAY_TOKEN straight from the
-      # environment, so the deploy step needs no `with: token` of its own.
+      # expressible at all.
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API: https://backboard.railway.com/graphql/v2
+      # NOT credentials — these three ids are safe in the clear; the token is
+      # the secret. They are hardcoded rather than looked up so that the deploy
+      # target is a reviewable fact in this file.
+      #
+      # RAILWAY_SERVICE_ID is the APP service, never the Postgres one. This is
+      # LOAD-BEARING: an earlier deploy that let Railway resolve the service by
+      # default hit the project's Postgres service and took the database down.
+      # Check the id against the Railway console before changing it.
+      RAILWAY_PROJECT_ID: 03741f62-adba-49f3-b05d-75eb5805997c
+      RAILWAY_ENVIRONMENT_ID: 523bb7c0-9bd4-4377-8e16-f117e14e7061
+      RAILWAY_SERVICE_ID: 17d364a0-b943-45ef-aa2d-88ea77638019
     steps:
       # A fork, or this repo before the operator creates the secret, has no
       # token. That is a normal state, not a failure: it reports and stops,
@@ -244,35 +259,152 @@ jobs:
           echo "Set the RAILWAY_TOKEN repository secret (a Railway *project* token)"
           echo "to enable deploys. See docs/adr/0008-ci-triggers-the-railway-deploy.md."
 
-      # `railway up` uploads THIS checkout as the build context; Railway does not
-      # pull the repo itself on this path. So the deploy needs the source, and
-      # what ships is exactly the commit CI just proved green.
-      - name: Checkout
-        if: env.RAILWAY_TOKEN != ''
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Setup Node
-        if: env.RAILWAY_TOKEN != ''
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-
-      # Installed by npm rather than by a third-party action, so there is no
-      # extra action to trust with a production token — but that means no SHA
-      # pin is possible, so the VERSION is pinned instead, exactly as the
-      # Tailwind download above pins its release. Bump it deliberately.
-      - name: Install the Railway CLI
+      # WHY the API and not `railway up`: COMMIT PROVENANCE. `railway up` uploads
+      # a gzipped tarball of the runner's working directory and transmits no
+      # commit metadata at all, so the resulting Railway deployment records
+      # `commit = none` — nobody can answer "which commit is in production?" —
+      # and what ships is the runner's tree rather than the repo state. Naming
+      # the commit here makes Railway pull that exact revision from the
+      # connected repo, and the deployment record carries the sha.
+      #
+      # WHY the `Project-Access-Token` header and not `Authorization: Bearer`:
+      # `Bearer` is for account/workspace tokens. A *project* token — scoped to
+      # this project and the production environment, which is what we want a CI
+      # credential to be — authenticates only through this header, and is
+      # rejected as unauthorized if sent as a bearer token.
+      - name: Trigger the Railway deploy for this commit
+        id: trigger
         if: env.RAILWAY_TOKEN != ''
         env:
-          RAILWAY_CLI_VERSION: 5.45.3
-        run: npm install -g "@railway/cli@${RAILWAY_CLI_VERSION}"
+          # Via env, never interpolated into the script body: `${{ }}` inside a
+          # run block is textual substitution, and this job holds a production
+          # credential.
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
 
-      # --service is LOAD-BEARING, not cosmetic: an earlier deploy without it
-      # resolved to the project's Postgres service and took the database down.
-      # --detach returns once the build is queued; the deployment's own outcome
-      # is watched in Railway, not held open on a runner.
-      - name: Deploy to Railway
+          # $serviceId and friends below are GRAPHQL variables, not shell ones.
+          # The single quotes are what keeps the shell out of them.
+          # shellcheck disable=SC2016
+          query='mutation DeployCommit($serviceId: String!, $environmentId: String!, $commitSha: String!) {
+            serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha)
+          }'
+
+          body="$(jq -n \
+            --arg query "$query" \
+            --arg serviceId "$RAILWAY_SERVICE_ID" \
+            --arg environmentId "$RAILWAY_ENVIRONMENT_ID" \
+            --arg commitSha "$COMMIT_SHA" \
+            '{query: $query, variables: {serviceId: $serviceId, environmentId: $environmentId, commitSha: $commitSha}}')"
+
+          echo "Deploying commit $COMMIT_SHA to service $RAILWAY_SERVICE_ID (project $RAILWAY_PROJECT_ID)."
+
+          http_status="$(curl -sS -X POST "$RAILWAY_API" \
+            -o response.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H "Project-Access-Token: $RAILWAY_TOKEN" \
+            --data-binary "$body")"
+
+          if [ "$http_status" != "200" ]; then
+            echo "::error title=Deploy failed::Railway returned HTTP $http_status."
+            cat response.json
+            exit 1
+          fi
+
+          # HTTP 200 proves NOTHING on its own: GraphQL reports an error — an
+          # unknown commit, a bad token, the wrong service — as 200 with an
+          # `errors` array. Both this and the missing-data check below must run,
+          # or a failed deploy passes silently.
+          if jq -e '(.errors // []) | length > 0' response.json >/dev/null 2>&1; then
+            echo "::error title=Deploy failed::Railway returned a GraphQL error."
+            jq -r '.errors[] | "  - " + (.message // "unknown error")' response.json
+            exit 1
+          fi
+
+          deployment_id="$(jq -r '.data.serviceInstanceDeployV2 // empty' response.json 2>/dev/null || true)"
+          if [ -z "$deployment_id" ]; then
+            echo "::error title=Deploy failed::No deployment id in Railway's response."
+            cat response.json
+            exit 1
+          fi
+
+          echo "Railway deployment id: $deployment_id"
+          echo "deployment-id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      # Green must mean DEPLOYED, not "deploy requested" — so the job holds open
+      # until Railway says the deployment reached a terminal state. Bounded, so
+      # a stuck build fails the run rather than burning the runner's whole
+      # allowance.
+      - name: Wait for the deployment to finish
         if: env.RAILWAY_TOKEN != ''
-        run: railway up --service google-books-clojure --detach
+        env:
+          DEPLOYMENT_ID: ${{ steps.trigger.outputs.deployment-id }}
+          POLL_INTERVAL_SECONDS: 10
+          POLL_TIMEOUT_SECONDS: 900 # ~15 minutes
+        run: |
+          set -euo pipefail
+
+          # $id is a GRAPHQL variable, not a shell one - see the step above.
+          # shellcheck disable=SC2016
+          query='query DeploymentStatus($id: String!) { deployment(id: $id) { status } }'
+          body="$(jq -n --arg query "$query" --arg id "$DEPLOYMENT_ID" \
+            '{query: $query, variables: {id: $id}}')"
+
+          deadline=$(( $(date +%s) + POLL_TIMEOUT_SECONDS ))
+          consecutive_poll_failures=0
+
+          while :; do
+            http_status="$(curl -sS -X POST "$RAILWAY_API" \
+              -o status.json -w '%{http_code}' \
+              -H 'Content-Type: application/json' \
+              -H "Project-Access-Token: $RAILWAY_TOKEN" \
+              --data-binary "$body")"
+
+            state=""
+            if [ "$http_status" = "200" ] \
+              && ! jq -e '(.errors // []) | length > 0' status.json >/dev/null 2>&1; then
+              state="$(jq -r '.data.deployment.status // empty' status.json 2>/dev/null || true)"
+            fi
+
+            if [ -z "$state" ]; then
+              # A single bad poll is not a failed deploy — the deployment is
+              # already running. Give up only if the API stays unreadable, so
+              # the run never reports "timed out" when it really means
+              # "could not ask".
+              consecutive_poll_failures=$((consecutive_poll_failures + 1))
+              echo "Could not read the deployment status (HTTP $http_status), attempt $consecutive_poll_failures."
+              if [ "$consecutive_poll_failures" -ge 5 ]; then
+                echo "::error title=Deploy status unknown::Railway's API did not return a status 5 times in a row for deployment $DEPLOYMENT_ID. The deploy may still be running - check the Railway console."
+                cat status.json
+                exit 1
+              fi
+            else
+              consecutive_poll_failures=0
+              case "$state" in
+                SUCCESS)
+                  echo "Deployment $DEPLOYMENT_ID succeeded."
+                  exit 0
+                  ;;
+                FAILED | CRASHED)
+                  echo "::error title=Deploy failed::Deployment $DEPLOYMENT_ID ended in state $state. See the Railway console for its build and deploy logs."
+                  exit 1
+                  ;;
+                REMOVED | SKIPPED)
+                  echo "::error title=Deploy did not land::Deployment $DEPLOYMENT_ID ended in state $state - it was superseded or discarded before it went live."
+                  exit 1
+                  ;;
+                *)
+                  # BUILDING, DEPLOYING, and anything else Railway may add:
+                  # treat as still in flight and keep waiting until the deadline.
+                  echo "Deployment $DEPLOYMENT_ID is $state ..."
+                  ;;
+              esac
+            fi
+
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error title=Deploy timed out::Deployment $DEPLOYMENT_ID did not reach a terminal state within ${POLL_TIMEOUT_SECONDS}s. It may still be running - check the Railway console."
+              exit 1
+            fi
+
+            sleep "$POLL_INTERVAL_SECONDS"
+          done
