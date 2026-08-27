@@ -133,6 +133,38 @@ credentials reach the driver as db-spec map values; the Books API key is a
 request header. That is a binding rule, not a preference (ADR-0003 clause 2,
 amended 2026-08-10 to cover the API key as well as the database).
 
+## Deploying
+
+**CI deploys. A merge to `main` does not.** The `deploy` job in
+`.github/workflows/ci.yml` runs on push to `main` *after* the `test` and
+`docs-gate` jobs are green, and runs
+`railway up --service google-books-clojure --detach`. A red `main` therefore
+never reaches production, and a pull request — from a fork or otherwise — can
+never deploy: the job is guarded on both the event name and the ref.
+
+This replaces Railway's own GitHub push integration, which never fired for this
+repo. The reasoning, the trade-offs, and the failure modes are in **ADR-0008**
+(`docs/adr/0008-ci-triggers-the-railway-deploy.md`).
+
+Two things are worth knowing before you touch it:
+
+- **`--service` is load-bearing.** Without it an earlier deploy resolved to the
+  project's Postgres service and took the database down. Never omit it.
+- **A missing `RAILWAY_TOKEN` is a skip, not a failure.** The job prints a
+  notice and passes, so forks and token-less clones stay green — which also
+  means a revoked token looks like a healthy pipeline. After a merge, confirm in
+  the Railway console that a deployment actually started.
+
+To enable deploys, an operator creates one repository secret (no token value
+lives in this repo):
+
+1. **Railway → the project → Settings → Tokens** → create a **project token**
+   scoped to the production environment. Prefer a project token over a personal
+   account token: it reaches this project only, and it does not belong to a
+   person who might leave.
+2. **GitHub → the repo → Settings → Secrets and variables → Actions → New
+   repository secret**, named `RAILWAY_TOKEN`, with that value.
+
 ## How this repo is run
 
 This project is built with an **agent-first SDLC**: a written spec before code,
