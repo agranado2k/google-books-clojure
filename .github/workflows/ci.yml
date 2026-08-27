@@ -227,6 +227,17 @@ jobs:
     # would skip this job forever. See ADR-0008.
     needs: [test, docs-gate]
     runs-on: ubuntu-latest
+    # LOAD-BEARING, and the least obvious line in this file. RAILWAY_TOKEN is a
+    # GitHub *environment* secret, not a repository secret — there are no
+    # repository-level Actions secrets on this repo at all. A job that does not
+    # declare the environment resolves `secrets.RAILWAY_TOKEN` to the EMPTY
+    # STRING; it does not error. Combined with the skip-when-absent guard below,
+    # deleting or renaming this key makes every push skip the deploy while the
+    # pipeline still reports green — the exact silent no-op this job exists to
+    # end. The name is literal, spaces around the slash included, so it is
+    # quoted. It must match the environment in GitHub → Settings →
+    # Environments exactly.
+    environment: "google-books-clojure / production"
     # There is NO checkout in this job, and that is deliberate. The deploy is
     # two API calls; Railway pulls the source itself, from the connected repo,
     # at the commit named below. Nothing here needs the working tree.
@@ -234,7 +245,7 @@ jobs:
       # Mapped once at job level for the guard below: the `secrets` context is
       # NOT available in a job-level `if:`, but `env` is available in every
       # step-level `if:` — so this is what makes "no token ⇒ skip, don't fail"
-      # expressible at all.
+      # expressible at all. Resolves only because of the `environment:` above.
       RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_API: https://backboard.railway.com/graphql/v2
       # NOT credentials — these three ids are safe in the clear; the token is
@@ -252,12 +263,19 @@ jobs:
       # A fork, or this repo before the operator creates the secret, has no
       # token. That is a normal state, not a failure: it reports and stops,
       # leaving the pipeline green rather than permanently red.
+      #
+      # THE TRAP: this guard cannot tell "no secret exists" apart from "the
+      # secret exists but this job did not declare the environment that holds
+      # it". Both are the empty string. If deploys go quiet while CI stays
+      # green, check the `environment:` key above FIRST.
       - name: No RAILWAY_TOKEN — skip the deploy
         if: env.RAILWAY_TOKEN == ''
         run: |
           echo "::notice title=Deploy skipped::RAILWAY_TOKEN is not set - nothing was deployed."
-          echo "Set the RAILWAY_TOKEN repository secret (a Railway *project* token)"
-          echo "to enable deploys. See docs/adr/0008-ci-triggers-the-railway-deploy.md."
+          echo "It is an ENVIRONMENT secret (a Railway *project* token) under the GitHub"
+          echo "environment 'google-books-clojure / production', not a repository secret."
+          echo "If that environment exists, check this job's environment: key matches its"
+          echo "name exactly. See docs/adr/0008-ci-triggers-the-railway-deploy.md."
 
       # WHY the API and not `railway up`: COMMIT PROVENANCE. `railway up` uploads
       # a gzipped tarball of the runner's working directory and transmits no

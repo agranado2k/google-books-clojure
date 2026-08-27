@@ -141,35 +141,43 @@ gated on green.**
    safe in the clear, and keeping them in the file makes the deploy target a
    reviewable fact rather than a lookup. The token is the secret.
 6. Authentication is `RAILWAY_TOKEN`, a Railway **project** token scoped to this
-   project and its `production` environment, read from GitHub Actions repository
-   secrets. **No token value is committed.** It is sent as the
-   **`Project-Access-Token`** header — *not* `Authorization: Bearer`, which is
-   the form for account/workspace tokens and is rejected for a project token.
-   It is mapped to a job-level `env` so that a *step-level*
-   `if: env.RAILWAY_TOKEN != ''` can guard on it — the `secrets` context is not
-   available in a job-level `if:`.
-7. **Missing secret is a skip, not a failure.** With no token, the job runs one
+   project and its `production` environment. **No token value is committed.**
+   It is sent as the **`Project-Access-Token`** header — *not*
+   `Authorization: Bearer`, which is the form for account/workspace tokens and
+   is rejected for a project token. It is mapped to a job-level `env` so that a
+   *step-level* `if: env.RAILWAY_TOKEN != ''` can guard on it — the `secrets`
+   context is not available in a job-level `if:`.
+7. **The secret is a GitHub *environment* secret, and the job declares that
+   environment.** It lives under the environment named literally
+   `google-books-clojure / production` (spaces around the slash included, hence
+   quoted in YAML); this repo has **no repository-level Actions secrets at
+   all**. So the deploy job carries
+   `environment: "google-books-clojure / production"`. This is not decoration:
+   a job that omits it resolves `secrets.RAILWAY_TOKEN` to the **empty string**
+   without erroring, which clause 8 below then reads as "no secret" and skips —
+   green. See the honest limitation on this.
+8. **Missing secret is a skip, not a failure.** With no token, the job runs one
    step that emits a `::notice` explaining that nothing was deployed and how to
    enable it, and every other step is skipped. The run stays green.
-8. **A GraphQL error is a job failure.** GraphQL returns errors as **HTTP 200
+9. **A GraphQL error is a job failure.** GraphQL returns errors as **HTTP 200
    with an `errors` array**, so the status code alone proves nothing. The job
    checks the status code, checks for a non-empty `errors` array, and checks
    that `data.serviceInstanceDeployV2` is present; any of the three failing
    prints the response and fails the job. A deploy that did not start must never
    look like a deploy that did.
-9. **The job then polls to completion**, so green means *deployed*. It queries
+10. **The job then polls to completion**, so green means *deployed*. It queries
    `deployment(id:) { status }` every 10 seconds; `SUCCESS` passes,
    `FAILED`/`CRASHED` fail, `REMOVED`/`SKIPPED` fail as "did not land", anything
    else (`BUILDING`, `DEPLOYING`, …) keeps waiting. Bounded at **15 minutes**,
    after which the job fails with a message saying the deploy may still be
    running. Five consecutive unreadable polls also fail, so "could not ask" is
    never reported as "timed out".
-10. **No action, no CLI, no package install.** The job uses `curl` and `jq`,
+11. **No action, no CLI, no package install.** The job uses `curl` and `jq`,
     both present on `ubuntu-latest`, so nothing beyond GitHub and Railway is
     trusted with a production credential (driver 6). It also has **no
     `actions/checkout`**: Railway fetches the source, so the working tree is
     not needed and the step is gone rather than left dead.
-11. **Explicit non-goal**: this does not decide *what* is built or how it is
+12. **Explicit non-goal**: this does not decide *what* is built or how it is
     packaged — that is ADR-0002 — and it does not introduce environments,
     approvals, staged rollouts, or a rollback mechanism. Rollback remains a
     Railway-console action.
@@ -182,7 +190,7 @@ gated on green.**
   carries the sha, so "what is in production?" is answerable from Railway alone,
   and a deploy is reproducible by naming the same revision again.
 - **Good**: a green `deploy` job means the app is deployed, not that a deploy
-  was requested — clause 9 holds the job open until Railway reaches a terminal
+  was requested — clause 10 holds the job open until Railway reaches a terminal
   state.
 - **Good**: the deploy credential lives in exactly one place (a repository
   secret), is reachable from exactly one job that cannot run on a pull request,
@@ -194,7 +202,7 @@ gated on green.**
   something that can deploy.
 - **Bad / trade-off**: a push-to-`main` run is now as long as a Railway build —
   up to 15 minutes of runner time per merge, where `--detach` cost seconds.
-  That is the price of clause 9 and it is paid deliberately.
+  That is the price of clause 10 and it is paid deliberately.
 - **Honest limitation — this bypasses Railway's own trigger model.** Railway's
   intended mechanism is App → trigger → deploy-on-push; this reaches past it and
   calls the deploy directly. **If the Railway GitHub App is ever installed, a
@@ -203,6 +211,19 @@ gated on green.**
   paths off *in the same change*, and records which. The check that tells you
   which world you are in is the `deploymentTriggers` query quoted above: zero
   rows means only this job deploys.
+- **Honest limitation — the job is coupled to a GitHub environment *name*.**
+  `RAILWAY_TOKEN` is an environment secret under `google-books-clojure /
+  production`, so the workflow has to name that environment to see it, and the
+  name is now a string duplicated in two systems. **Renaming the environment in
+  GitHub, or dropping the `environment:` key in a refactor, breaks deploys
+  silently**: `secrets.RAILWAY_TOKEN` resolves to the empty string rather than
+  erroring, and the skip-when-absent guard reads that as "no secret configured"
+  and passes. This is the same green-but-not-deploying failure as the missing
+  secret below, reached by a different and much less obvious route — which is
+  why the workflow comments it at the `environment:` key, at the guard step, and
+  in the skipped-deploy notice itself. Promoting the secret to a repository
+  secret would remove the coupling; that has not been done, because the
+  environment scoping is also what keeps the token off every other job.
 - **Honest limitation — the failure mode if the secret is missing**: the job
   turns into a one-step no-op that prints a notice and passes. **A missing or
   revoked token therefore looks exactly like a healthy pipeline**, which is the
@@ -228,8 +249,12 @@ gated on green.**
      project token is preferred over a personal/account token: a leak cannot
      reach the account's other projects, and it is not tied to a person who may
      leave.
-  2. **GitHub → this repo → Settings → Secrets and variables → Actions → New
-     repository secret**, named `RAILWAY_TOKEN`, with that value.
+  2. **GitHub → this repo → Settings → Environments →
+     `google-books-clojure / production` → Environment secrets → Add secret**,
+     named `RAILWAY_TOKEN`, with that value. It is an **environment** secret,
+     not a repository secret — this repo has none of the latter — and the
+     environment name must match the workflow's `environment:` key character for
+     character, spaces around the slash included.
 - The three ids in the workflow (project, production environment, app service)
   are non-secret. If the Railway project is ever recreated they change, and the
   workflow must be updated with them.

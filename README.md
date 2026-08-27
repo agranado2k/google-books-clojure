@@ -170,10 +170,17 @@ Four things are worth knowing before you touch it:
   notice and passes, so forks and token-less clones stay green — which also
   means a revoked token looks like a healthy pipeline. After a merge, confirm in
   the Railway console that a deployment actually started.
+- **`RAILWAY_TOKEN` is a GitHub *environment* secret**, under the environment
+  named literally `google-books-clojure / production`. That is why the deploy
+  job carries `environment: "google-books-clojure / production"`. **Do not
+  delete that key, and do not rename the environment without changing it**: a
+  job that does not declare the environment gets the *empty string* rather than
+  an error, and the skip guard above then passes the run while deploying
+  nothing.
 
-To enable deploys, an operator creates one repository secret (no token value
-lives in this repo). **No GitHub App install is needed** — the service's
-existing source connection to this repo is what lets Railway fetch the commit:
+To enable deploys, an operator creates one secret (no token value lives in this
+repo). **No GitHub App install is needed** — the service's existing source
+connection to this repo is what lets Railway fetch the commit:
 
 1. **Railway → the project → Settings → Tokens** → create a **project token**,
    scoped to this project and the **`production`** environment. It must be a
@@ -181,8 +188,11 @@ existing source connection to this repo is what lets Railway fetch the commit:
    `Project-Access-Token` header, which is the project-token form. A project
    token also reaches this project only, and does not belong to a person who
    might leave.
-2. **GitHub → the repo → Settings → Secrets and variables → Actions → New
-   repository secret**, named `RAILWAY_TOKEN`, with that value.
+2. **GitHub → the repo → Settings → Environments →
+   `google-books-clojure / production` → Environment secrets → Add secret**,
+   named `RAILWAY_TOKEN`, with that value. An **environment** secret, not a
+   repository secret, and the environment name must match the workflow's
+   `environment:` key exactly — spaces around the slash included.
 
 ## How this repo is run
 
