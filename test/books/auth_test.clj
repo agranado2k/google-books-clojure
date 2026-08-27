@@ -61,6 +61,18 @@
       (is (= 200 (:status response)))
       (is (str/starts-with? (header response "Content-Type") "text/html")))))
 
+(deftest the-sign-in-form-is-centred-on-its-own-column
+  ;; Regression: the mount slot carried `justify-center` but not `w-full`, so
+  ;; the card Clerk mounts into it sized itself and settled against the left
+  ;; edge of a wide content column. Both classes are load-bearing — a flex
+  ;; parent narrower than its row centres nothing.
+  (testing "the slot ClerkJS mounts into is a full-width centring row"
+    (let [body (:body (GET sign-in-path))
+          slot (re-find #"<div[^>]*id=\"sign-in\"[^>]*>" body)]
+      (is (some? slot) "the sign-in page still renders a mount slot")
+      (is (str/includes? slot "justify-center"))
+      (is (str/includes? slot "w-full")))))
+
 (deftest static-assets-stay-public
   (testing "the stylesheet and the vendored script are not behind the gate"
     ;; They are what the sign-in page itself is rendered and driven by, so
@@ -227,13 +239,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-gated-routes-are-named-in-one-place
-  (testing "the seam the bookmarks pages will use is data, not a scattered wrapper"
-    (is (= ["/search"] handler/gated-paths))))
+  (testing "the seam the bookmarks pages use is data, not a scattered wrapper"
+    (is (= {"/search" #{:get :head}
+            "/bookmarks" #{:post :delete}}
+           handler/gated-paths))))
 
 (deftest every-gated-path-actually-refuses
   ;; The list above is only a seam if the router honours it. This asserts on the
   ;; list rather than on "/search", so a path added there without being wired
-  ;; through the gate fails here instead of shipping open.
-  (testing "each named path refuses a signed-out request"
-    (doseq [path handler/gated-paths]
-      (is (= 302 (:status (GET path))) (str path " must be gated")))))
+  ;; through the gate fails here instead of shipping open — and it probes each
+  ;; path by the METHODS it answers, so a mutation route is not waved through by
+  ;; a GET that 404s and looks refused.
+  (testing "each named path refuses a signed-out request, by every method it answers"
+    (doseq [[path methods] handler/gated-paths
+            method methods]
+      (is (= 302 (:status ((app) {:request-method method :uri path})))
+          (str (name method) " " path " must be gated")))))

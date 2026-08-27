@@ -1,5 +1,6 @@
 (ns books.handler
-  (:require [books.catalog :as catalog]
+  (:require [books.bookmarks :as bookmarks]
+            [books.catalog :as catalog]
             [books.clerk :as clerk]
             [books.db :as db]
             [books.reader :as reader]
@@ -120,54 +121,170 @@
   Always 200, including for a failed search. htmx does not swap a non-2xx
   response, and the rendered error region IS the answer: the page rendered
   fine; the search did not."
-  [book-search clerk]
+  [book-search clerk datasource]
   (fn [request]
     (let [query (catalog/query {:title (get-in request [:params "title"])
                                 :author (get-in request [:params "author"])
                                 :start-index (get-in request [:params "start"])})
           state (if (catalog/blank-query? query)
                   {:outcome :prompt}
-                  (book-search query))]
+                  (book-search query))
+          ;; Which of the Volumes about to be rendered this Reader already
+          ;; keeps — ONE query for the whole page, never one per card. The
+          ;; Reader comes from `:reader`, which the gate attached from a
+          ;; verified session; a parameter could name anyone.
+          bookmarked (bookmarks/bookmarked-ids datasource
+                                               (get-in request [:reader :id])
+                                               (mapv :id (:volumes state)))]
       (-> (html (if (fragment-request? request)
-                  (views/search-results query state)
-                  (views/search-page clerk query state)))
+                  (views/search-results query state bookmarked)
+                  (views/search-page clerk query state bookmarked)))
           (update :headers merge search-cache-headers)))))
+
+;; ---------------------------------------------------------------------------
+;; Keeping a Volume.
+;;
+;; POST adds a Bookmark, DELETE removes one, and both answer the control alone
+;; for htmx to swap over the one it submitted. The Volume travels as form
+;; fields — the snapshot ADR-0006 stores — which is why the DELETE reads them
+;; too: its answer is the *not-bookmarked* control for that Volume, and drawing
+;; it needs the same fields. htmx puts a DELETE's parameters in the URL rather
+;; than the body (`methodsThatUseUrlParams`), and `wrap-params` reads both.
+;; ---------------------------------------------------------------------------
+
+(def ^:private bookmarks-path "/bookmarks")
+
+(defn- one
+  "One value for a request parameter, whatever shape the parameter middleware
+  handed us — `wrap-params` answers a vector for a repeated name. The first
+  wins, as it does for a search field (`books.catalog`)."
+  [v]
+  (if (sequential? v) (first v) v))
+
+(defn- many
+  "Every value a repeated request parameter carried, as a vector. The authors of
+  a Volume arrive this way, and a single author arrives as a bare string."
+  [v]
+  (cond
+    (sequential? v) (vec v)
+    (some? v) [v]
+    :else []))
+
+(defn- volume-snapshot
+  "The Volume a toggle names, rebuilt from the control's own hidden fields.
+
+  It is the browser's account of the Volume rather than the Catalog's, and
+  ADR-0006 weighs that deliberately: it is the Reader's own row, seen by nobody
+  else, and rendered escaped like every other string."
+  [params]
+  {:id (one (get params "volume"))
+   :title (one (get params "title"))
+   :authors (many (get params "author"))
+   :published-date (one (get params "published-date"))
+   :thumbnail (one (get params "thumbnail"))})
+
+(defn- toggled
+  "The re-rendered control, which is the whole of a toggle's answer."
+  [volume state]
+  (html (views/bookmark-toggle volume state)))
+
+(def ^:private nameless-volume
+  "A toggle that names no Volume is a request no control could have made. An
+  empty body, so htmx has nothing to swap and the card stays as it was."
+  {:status 400
+   :headers {"Content-Type" "text/html; charset=utf-8"}
+   :body ""})
+
+(defn- keep-volume
+  "POST /bookmarks — the Reader keeps this Volume. Bookmarking one already kept
+  is the same answer again, not an error (`books.bookmarks/save!`)."
+  [datasource]
+  (fn [request]
+    (let [volume (volume-snapshot (:params request))]
+      (if (str/blank? (:id volume))
+        nameless-volume
+        (do (bookmarks/save! datasource (get-in request [:reader :id]) volume)
+            (toggled volume :bookmarked))))))
+
+(defn- drop-volume
+  "DELETE /bookmarks — the Reader stops keeping this Volume. Scoped to them, so
+  it can only ever reach their own row."
+  [datasource]
+  (fn [request]
+    (let [volume (volume-snapshot (:params request))]
+      (if (str/blank? (:id volume))
+        nameless-volume
+        (do (bookmarks/remove! datasource (get-in request [:reader :id]) (:id volume))
+            (toggled volume :not-bookmarked))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The gate.
 ;;
 ;; Everything except the landing page, the health probe and the sign-in page
-;; requires a Reader. The gated set is the named list below, so the bookmarks
-;; pages (tickets #9 and #10) join it by adding their path and wrapping their
-;; route data in `gated` — two lines, in one place, reviewable as a diff.
+;; requires a Reader. The gated set is the named map below, so a new gated route
+;; joins it by adding its path and wrapping its route data in `gated` — two
+;; lines, in one place, reviewable as a diff.
 ;; ---------------------------------------------------------------------------
 
 (def gated-paths
-  "The paths that require a signed-in Reader.
+  "The paths that require a signed-in Reader, and the request methods each
+  answers.
 
   Public, because it is the seam: `books.auth-test` asserts that every path
-  named here actually refuses an anonymous request, so a path added to this list
-  without being wired through `gated` fails the suite instead of shipping open.
+  named here refuses an anonymous request by every method it answers, so a path
+  added to this map without being wired through `gated` fails the suite instead
+  of shipping open. The methods are part of the seam rather than decoration — a
+  mutation route probed with a GET would 404 and look refused.
+
   It is also what bounds the sign-in return path — see `return-path`."
-  ["/search"])
+  {"/search" #{:get :head}
+   "/bookmarks" #{:post :delete}})
 
 (def ^:private sign-in-path "/sign-in")
 
 (def ^:private bearer-prefix "Bearer ")
 
-(defn- session-token
-  "The session token the request carries, or nil.
+;; The two transports ADR-0005 accepts a session token over, named — because
+;; which of them a request used is the whole of this app's CSRF story, and a
+;; bare token string cannot say.
+(def ^:private page-transports
+  "How a request to READ a gated page may prove itself.
 
-  Two transports, and the ORDER matters. htmx mints a token per request with
-  `getToken()` and sends it as a bearer credential; the `__session` cookie is
-  what an ordinary document navigation carries and may be up to a minute older.
-  So the header wins where both are present: it is the fresher of the two, and
-  it is the one the caller chose to send deliberately."
+  Both, and the header wins where both arrive: htmx mints a token per request
+  with `getToken()`, while the `__session` cookie an ordinary document
+  navigation carries may be up to a minute older. A cross-site GET is accepted
+  here because it changes nothing."
+  #{:bearer-header :session-cookie})
+
+(def ^:private mutation-transports
+  "How a request that CHANGES something may prove itself: the bearer header
+  alone, and that is this app's CSRF defence (ADR-0007).
+
+  A cross-origin form can POST urlencoded data with no preflight and the browser
+  will attach our cookie — whose token is genuine and whose `azp` is ours, so
+  every check in ADR-0005 passes. It CANNOT set an `Authorization` header
+  without a permissive CORS preflight, and this app answers no OPTIONS route and
+  sends no `Access-Control-Allow-*` header anywhere. The defence is therefore a
+  property of the browser's request model rather than of the `SameSite`
+  attribute of a cookie Clerk sets and this repo cannot see."
+  #{:bearer-header})
+
+(defn- session-credential
+  "The session token the request carries and the transport that carried it, or
+  nil. The header wins where both are present — see `page-transports`."
   [request]
   (let [authorization (get-in request [:headers "authorization"])]
     (if (and (string? authorization) (str/starts-with? authorization bearer-prefix))
-      (subs authorization (count bearer-prefix))
-      (get-in request [:cookies "__session" :value]))))
+      {:transport :bearer-header :token (subs authorization (count bearer-prefix))}
+      (when-let [cookie (get-in request [:cookies "__session" :value])]
+        {:transport :session-cookie :token cookie}))))
+
+(defn- returnable?
+  "Whether a gated path is one a Reader can be sent back to after signing in: a
+  page they can GET. A mutation route is not — returning them to a POST-only
+  path lands them on a 404."
+  [uri]
+  (contains? (get gated-paths uri) :get))
 
 (defn- return-path
   "Where to send the Reader after they sign in.
@@ -183,7 +300,7 @@
   [request]
   (let [uri (:uri request)
         query (:query-string request)]
-    (if (some #{uri} gated-paths)
+    (if (returnable? uri)
       (cond-> uri (seq query) (str "?" query))
       "/")))
 
@@ -257,12 +374,18 @@
 (defn- wrap-require-reader
   "Only a signed-in Reader reaches `handler`; everyone else is refused.
 
-  The verified Reader is attached to the request as `:reader`, which is how the
-  bookmarks tickets will know whose bookmarks to answer. Nothing downstream ever
-  reads a token."
-  [session-check clerk handler]
+  `accepted-transports` is which credentials count on this route — a token that
+  arrived any other way is not checked at all, so a cookie-only mutation reads
+  as a request carrying no credential and is refused exactly as a signed-out one
+  is (ADR-0007 clause 6). It is the same fact from the app's side.
+
+  The verified Reader is attached to the request as `:reader`, which is how
+  `books.bookmarks` knows whose rows to answer. Nothing downstream ever reads a
+  token."
+  [session-check clerk accepted-transports handler]
   (fn [request]
-    (let [outcome (session-check (session-token request))]
+    (let [{:keys [transport token]} (session-credential request)
+          outcome (session-check (when (accepted-transports transport) token))]
       (cond
         (reader/signed-in? outcome)
         (some-> (handler (assoc request :reader (:reader outcome)))
@@ -534,10 +657,16 @@
                  :ui-script-url (clerk/ui-script-url publishable-key)})
         landing-handler (landing clerk)
         sign-in-handler (sign-in clerk)
-        search-handler (search (or book-search catalog/not-configured) clerk)
-        require-reader (partial wrap-require-reader
-                                (or session-check reader/not-configured)
-                                clerk)]
+        search-handler (search (or book-search catalog/not-configured) clerk datasource)
+        keep-handler (keep-volume datasource)
+        drop-handler (drop-volume datasource)
+        ;; A gate per route, differing only in which transports it accepts —
+        ;; so "may this credential change something?" is data at the route.
+        require-reader (fn [accepted-transports]
+                         (partial wrap-require-reader
+                                  (or session-check reader/not-configured)
+                                  clerk
+                                  accepted-transports))]
     (wrap-error-page
      redact
      (wrap-security-headers
@@ -550,13 +679,14 @@
          ;; HEAD as well as GET, like every other page route: without it this was
          ;; the one path answering 405 — and reitit sends no `Allow` header with
          ;; it, so a probe or link checker learned nothing from the refusal.
-         ;; HEAD as well as GET, like every other page route: without it this was
-         ;; the one path answering 405 — and reitit sends no `Allow` header with
-         ;; it, so a probe or link checker learned nothing from the refusal.
-         ["/search" (gated require-reader {:get search-handler :head search-handler})]]
-        ;; Query parameters, for the search form; cookies, for the session token
-        ;; a document navigation carries. Router-scoped rather than wrapped
-        ;; around everything: the static roots read neither.
+         ["/search" (gated (require-reader page-transports)
+                           {:get search-handler :head search-handler})]
+         ;; A write, so the bearer header is the only credential that counts.
+         [bookmarks-path (gated (require-reader mutation-transports)
+                                {:post keep-handler :delete drop-handler})]]
+        ;; Query parameters, for the search form and a DELETE's fields; cookies,
+        ;; for the session token a document navigation carries. Router-scoped
+        ;; rather than wrapped around everything: the static roots read neither.
         {:data {:middleware [wrap-params wrap-cookies]}})
        (ring/routes
         stylesheets
