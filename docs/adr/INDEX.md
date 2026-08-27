@@ -23,7 +23,7 @@ alone answers "what is currently binding?" without opening 40 files.
 | [0005](0005-clerk-sign-in-third-party-script-and-security-headers.md) | Sign readers in with Clerk — a third-party script on every page, and the security headers that bound it | Accepted 2026-08-27 |
 | [0006](0006-bookmark-as-reader-scoped-row-with-volume-snapshot.md) | Persist a Bookmark as a Reader-scoped row carrying a Volume snapshot | Accepted 2026-08-27 |
 | [0007](0007-mutations-accept-the-bearer-header-only.md) | A mutating request proves itself with the bearer header alone | Accepted 2026-08-27 |
-
+| [0008](0008-ci-triggers-the-railway-deploy.md) | Trigger the Railway deploy from CI, by API, naming the commit | Accepted 2026-08-27, reverses in part the 2026-08-09 diary decision below |
 ## Conventions
 
 - **File name**: `NNNN-short-kebab-title.md`, zero-padded to four digits.
@@ -51,4 +51,8 @@ leave a back-reference in the diary entry.
 
 - **2026-08-09** — Deploys via Railway's native GitHub integration; GitHub
   Actions is CI-only (tests, docs gate, TDD pairing guard). See the diary
-  entry of that date.
+  entry of that date. **Reversed in part by ADR-0008 (2026-08-27)**: the
+  integration never fired for this repo — the Railway GitHub App is not
+  installed, so the service has zero deployment triggers — and CI now asks
+  Railway's API to deploy the green commit by sha. What ADR-0002 decides about
+  packaging is untouched.
