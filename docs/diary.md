@@ -25,8 +25,8 @@ is in flight. Do not restate the README.
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
 | **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
-| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer update, now carried on to 0.9.0, open as a PR. |
-| **Kit / shared layer** | 0.9.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families, plus one domain override (`AGENT_TIER_IMPLEMENTER_CONTENT`). `constitution/shared-code-craft.md` is a second shared article. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
+| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer update, now carried on to 0.10.0, open as a PR. |
+| **Kit / shared layer** | 0.10.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families, plus one domain override (`AGENT_TIER_IMPLEMENTER_CONTENT`). `constitution/shared-code-craft.md` is a second shared article. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
 
 ### Open questions / unresolved decisions
@@ -299,3 +299,28 @@ vacuously empty for them — which is how it missed the change that actually
 mattered this release: `portability.files` in `scripts/docs-conformance/config.mjs`
 had to gain the new shared article by hand, or the gate would never have checked
 it for product-vocabulary leaks. Both reported upstream.
+
+## 2026-08-27 — shared layer 0.9.0 → 0.10.0, and both upstream bugs are fixed
+
+The two defects this project's own update found last entry are closed upstream,
+and this is the release that carries the fix. Only one shared-layer file changed
+— `UPDATING.md` — so nothing this project *runs* is affected. What changed is the
+recipe our next update follows, which is the point: the previous one could have
+zeroed `scripts/docs-conformance/local-vocabulary.mjs`, our product vocabulary,
+and could have eaten a local constitution article under zsh, which is this
+machine's default shell.
+
+Upstream fixed both as shapes rather than incidents, and the audit found more
+than we reported: eight take-sites had the truncate-before-failure pattern, not
+one, and four expansions were zsh-reachable, not three — the extra one being
+prose that tells the reader to run a command, which no test would have executed.
+Every take now writes only on success.
+
+Also taken, both byte-clean against v0.9.0 and so straight takes: `/implement`
+now appends an `/explain-diff` narrative to the PR body below an explicit marker,
+and `/review-pr`'s Axis-2 reviewer stops reading there — the implementer's
+narrative is exactly what that agent's context isolation exists to exclude.
+
+Verified: all 13 manifest files verbatim on bytes **and** mode; docs gate green at
+0.10.0; docs-conformance harness 52/52; `clojure -X:test` 45 tests / 85 assertions
+/ 0 failures.
