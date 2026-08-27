@@ -20,14 +20,14 @@ is in flight. Do not restate the README.
 
 | Field | Value |
 | --- | --- |
-| **Phase** | Search live in the codebase (#5) and kit 0.10.0 adopted. In flight: #7 (Clerk auth), #6 (paging). Remaining: #9, #10. |
+| **Phase** | PRD #1 feature-complete: every ticket merged and deployed. Remaining work is verification, not code. |
 | **Repo** | `~/PetProjects/google-books-clojure` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
-| **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
-| **Active worktrees** | `worktree/clerk-auth` (#7), `worktree/search-paging` (#6). |
+| **Deployed / live** | https://google-books-clojure-production.up.railway.app — current with `main`, deployed by CI on every green merge (ADR-0008). |
+| **Active worktrees** | None. |
 | **Kit / shared layer** | 0.10.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families, plus one domain override (`AGENT_TIER_IMPLEMENTER_CONTENT`). `constitution/shared-code-craft.md` is a second shared article. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
-| **Spec status** | PRD [#1](https://github.com/agranado2k/google-books-clojure/issues/1); #2,#4,#5,#8,#12 done. Open: #3 (deploy), #6, #7, #9, #10. |
+| **Spec status** | PRD [#1](https://github.com/agranado2k/google-books-clojure/issues/1) — tickets #2–#10, #12, #24 all closed. Only #1 remains open, as the spec of record. |
 
 ### Open questions / unresolved decisions
 
@@ -352,3 +352,34 @@ buys: **never run worktree cleanup while an agent holds a worktree**, and have
 implementation agents commit each red/green slice rather than banking work
 uncommitted. Ticket #7 was restarted from the new `main`, which at least let it
 gate the real `/search` page instead of a placeholder.
+
+### 2026-08-27 — The PRD is built: bookmarks page, a 404 nobody had hit, and a deploy pipeline that deploys
+
+Tickets #6, #7, #9 and #10 landed today alongside the kit's 0.10.0 adoption, and
+PRD #1 is now feature-complete: search by title and author with paging, Clerk
+sign-in gating, bookmarking from the results, and a bookmarks page that prunes
+the collection. Ticket #3 closed too, though not the way it was written.
+
+**Deployment took three attempts to get right, and the first two were wrong in
+instructive ways.** Railway's push integration never worked here: a live
+`deploymentTriggers` query returned zero rows, because `service source connect`
+cannot create a trigger without the Railway GitHub App, whose install is a
+browser-only step. Falling back to `railway up` from CI looked reasonable and
+was worse — it uploads a tarball of the runner's working tree and records no
+commit, so production could not say what it was running. The answer, recorded as
+ADR-0008, is CI calling `serviceInstanceDeployV2` with the commit SHA and
+polling to completion: deploy only after green, and the deployment names the
+commit. It has now deployed three merges unattended.
+
+**Two bugs found by looking rather than by testing.** Sign-in was broken in
+production — clerk-js 6 moved its UI components into a second bundle, so
+`mountSignIn` threw and the page rendered a heading and nothing else; no test
+could have caught it, and a browser found it in a minute. And auditing the PRD's
+27 user stories against the code turned up `DEFAULT_RETURN_URL = '/library'`, a
+route that never existed in the shipped design — debris from a worktree lost to
+a cleanup mistake earlier in the day, sending every direct sign-in to a 404.
+
+**What is built is not the same as what is known to work.** Three stories remain
+implemented but unverified by any human or browser: the Google sign-in
+round-trip, sign-out returning to the landing page, and mobile layout. They are
+listed here rather than counted as done.
