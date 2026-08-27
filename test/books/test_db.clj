@@ -13,6 +13,7 @@
   Not a test namespace: the name deliberately does not end in `-test`, so the
   runner loads it only as a dependency of the namespaces that require it."
   (:require [books.db :as db]
+            [clojure.string :as str]
             [next.jdbc :as jdbc])
   (:import (java.net ServerSocket)))
 
@@ -46,11 +47,17 @@
 
 (defn- reset-schema!
   "Put the database back to empty: no domain tables, and no record that any
-  migration ever ran."
+  migration ever ran.
+
+  ONE statement, not one per table. A run interrupted between two drops would
+  otherwise leave the half-state that neither `migrate!` nor the app can recover
+  from on its own — a table present with its migration unrecorded crashes the
+  next boot, and a migration recorded with its table gone breaks the next
+  insert."
   []
-  (let [ds (db/datasource test-database-url)]
-    (doseq [table (conj migrated-tables "schema_migrations")]
-      (jdbc/execute-one! ds [(str "drop table if exists " table)]))))
+  (jdbc/execute-one! (db/datasource test-database-url)
+                     [(str "drop table if exists "
+                           (str/join ", " (conj migrated-tables "schema_migrations")))]))
 
 (defn reset-migrations-fixture
   "A `:once` fixture that empties the schema before the namespace runs, so
