@@ -67,6 +67,14 @@ form GET (so it works without JavaScript, and a result URL can be shared). It
 needs `GOOGLE_BOOKS_API_KEY`; without one it renders honestly and says search is
 not configured.
 
+`GET /sign-in` is the sign-in page: ClerkJS mounts Clerk's own form there and
+runs the Google flow in the browser. Pages behind the gate require a signed-in
+**Reader** — the `sub` claim of a Clerk session token, verified on the server
+against the instance's published RS256 keys (ADR-0005). **A deployment with no
+Clerk configuration does not open the gate**: it answers `503` and says sign-in
+is not configured here, which is the opposite of `DB_OPTIONAL`'s posture and
+deliberately so.
+
 `GET /health` answers JSON: `200 {"status":"ok","db":"ok"}` when the database
 is reachable, `503 {"status":"degraded","db":"unreachable"}` when it is not,
 and `db: "not-configured"` when no `DATABASE_URL` is set — 503 by default, 200
@@ -79,6 +87,9 @@ under `DB_OPTIONAL=true`.
 | `DATABASE_URL` | yes, unless `DB_OPTIONAL=true` | — | The database, in libpq form: `postgresql://user:password@host:port/dbname` (`postgres://` is accepted too). Query parameters — `sslmode` included — are passed to the driver unchanged. Railway injects this. Migrations run at boot against it, and a failed migration or an unreachable database **crashes the boot** deliberately (ADR-0003). |
 | `DB_OPTIONAL` | no | `false` | `true` makes running without a `DATABASE_URL` a healthy state. Anything else, including unset, makes a missing `DATABASE_URL` a 503 — so a deploy that silently loses the variable fails its health check. |
 | `GOOGLE_BOOKS_API_KEY` | no, but search does nothing without it | — | The Google Books API key the search page uses. **A secret**: it travels in the `X-goog-api-key` request header of every catalog request, never in the URL (ADR-0003 clause 2, as amended), so the search URL is safe to log, render or put in an exception message; redirects are never followed, and any diagnostic built from text this repo did not construct is redacted. Absent or blank is not a boot failure — every search then answers "search is not configured here" and the page says so. |
+| `CLERK_PUBLISHABLE_KEY` | no, but nobody can sign in without it | — | The Clerk instance, as `pk_test_…` / `pk_live_…`. **Not a secret**: it is rendered into every page, and it is what the browser gives ClerkJS. It also encodes the instance's Frontend API host, which is where both the ClerkJS script URL and the JWKS location are derived from — so one variable names the instance and a second one cannot contradict it. |
+| `CLERK_AUTHORIZED_PARTY` | no, but nobody can sign in without it | — | This app's own public origin (`https://books.example.com`, or `http://localhost:3000` locally), compared against every token's `azp` claim. Without it there is nothing to compare against, and "compare it to nothing" is the CSRF hole — so a half-configured deploy closes the gate rather than opening it (ADR-0005). |
+| `CLERK_JWKS_URL` | no | derived from the publishable key | An override for the key endpoint, for a deployment that reaches Clerk through a proxy. Leaving it unset is the safer choice: derived, it cannot name a different instance than the key does. |
 | `PORT` | no | `3000` | The HTTP port; the server binds `0.0.0.0`. Railway injects this. |
 | `TEST_DATABASE_URL` | no | `postgresql://postgres:test@localhost:5544/postgres` | Tests only — where the suite finds its Postgres. |
 

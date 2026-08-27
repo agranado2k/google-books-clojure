@@ -6,6 +6,7 @@
             [books.clerk :as clerk]
             [books.db :as db]
             [books.handler :as handler]
+            [books.stub-session :as session]
             [books.test-db :as test-db]
             [books.test-jwt :as test-jwt]
             [clojure.string :as str]
@@ -111,7 +112,7 @@
       (is (re-find #"(?s)Find a book in the Google Books catalog by title, by author, or by both\..{0,120}Available now"
                    body))
       (is (str/includes? body "Save the books you care about and find them again in one place."))
-      (is (str/includes? body "an account so they follow you around")))))
+      (is (str/includes? body "an account so your library follows you around")))))
 
 (deftest landing-page-uses-the-shared-layout
   (testing "the landing page is framed by the shared layout: header, footer, stylesheet"
@@ -141,6 +142,7 @@
   point — the middleware has to hold for the handler nobody predicted."
   []
   (handler/make-app nil {:db-optional? true
+                         :session-check (session/signed-in)
                          :book-search (fn [_query]
                                         (throw (ex-info "port blew up" {:secret "s3cret"})))}))
 
@@ -180,6 +182,7 @@
   ;; request back to Jetty's own error page — the exact disclosure the
   ;; middleware exists to prevent, reached by the one path nobody watches.
   (let [app (handler/make-app nil {:db-optional? true
+                                   :session-check (session/signed-in)
                                    :book-search (fn [_query] (throw (unreportable)))})
         response (binding [*err* (java.io.StringWriter.)]
                    (app {:request-method :get :uri "/search" :query-string "title=clojure"}))]
@@ -195,6 +198,7 @@
         errors (java.io.StringWriter.)
         app (handler/make-app nil
                               {:db-optional? true
+                               :session-check (session/signed-in)
                                :redact #(str/replace % secret "[redacted]")
                                :book-search (fn [_query]
                                               (throw (AssertionError.

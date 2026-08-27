@@ -5,6 +5,7 @@
   (:require [books.handler :as handler]
             [books.server :as server]
             [books.test-db :as test-db]
+            [books.test-jwt :as test-jwt]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json])
@@ -96,12 +97,53 @@
       (is (= "connect failed for [redacted]"
              ((:redact @wiring) "connect failed for test-key-not-a-real-one"))))))
 
-(deftest full-boot-without-an-api-key-serves-a-degraded-search-page
-  (testing "no GOOGLE_BOOKS_API_KEY must not crash the boot — the page says so instead"
+(deftest full-boot-without-an-api-key-still-boots
+  (testing "no GOOGLE_BOOKS_API_KEY must not crash the boot"
+    ;; What the page then SAYS is asserted at the handler seam, in
+    ;; `books.search-test` — /search is gated now, so a boot-level request for
+    ;; it answers the gate rather than the page.
+    (let [jetty (server/run {:http-port 0 :database-url nil :db-optional? true
+                             :books-api-key nil})]
+      (try
+        (is (= 200 (:status (get-path jetty "/"))))
+        (finally (.stop jetty))))))
+
+(deftest full-boot-without-clerk-configuration-closes-the-gate
+  (testing "a deploy that lost its Clerk variables serves a refusal, never the page"
+    ;; The posture `DB_OPTIONAL` takes for the database, taken for the gate — and
+    ;; with no opt-out at all, because the failure mode here is an open door
+    ;; rather than a misreported health check.
     (let [jetty (server/run {:http-port 0 :database-url nil :db-optional? true
                              :books-api-key nil})]
       (try
         (let [{:keys [status body]} (get-path jetty "/search?title=clojure")]
-          (is (= 200 status))
-          (is (str/includes? body "Search is not configured here")))
+          (is (= 503 status))
+          (is (str/includes? body "Sign-in is not configured here")))
         (finally (.stop jetty))))))
+
+(deftest full-boot-with-clerk-configuration-redirects-an-anonymous-reader
+  (testing "configured, the gate turns an anonymous request around instead of refusing it"
+    (let [jetty (server/run {:http-port 0 :database-url nil :db-optional? true
+                             :clerk-publishable-key test-jwt/publishable-key
+                             :clerk-authorized-party test-jwt/authorized-party
+                             ;; Never reached: no token means nothing to verify,
+                             ;; so this boot makes no outbound call at all.
+                             :clerk-jwks-url "https://jwks.invalid/keys"})]
+      (try
+        (is (= 302 (:status (get-path jetty "/search?title=clojure"))))
+        (finally (.stop jetty))))))
+
+(deftest full-boot-reads-the-clerk-contract-from-its-arguments
+  (testing "the publishable key reaches the pages, and no secret key is read at all"
+    (let [wiring (atom nil)]
+      (with-redefs [handler/make-app (fn [_datasource options]
+                                       (reset! wiring options)
+                                       (constantly {:status 200}))
+                    server/start (fn [_http-port app] app)]
+        (server/run {:http-port 0 :database-url nil :db-optional? true
+                     :clerk-publishable-key test-jwt/publishable-key
+                     :clerk-authorized-party test-jwt/authorized-party}))
+      (is (= test-jwt/publishable-key (:publishable-key @wiring)))
+      (is (fn? (:session-check @wiring)))
+      (testing "nothing named like a Clerk secret is wired anywhere"
+        (is (empty? (filter #(str/includes? (name %) "secret") (keys @wiring))))))))

@@ -100,6 +100,50 @@
   (some-> (frontend-api publishable-key) (->> (format "https://%s/.well-known/jwks.json"))))
 
 ;; ---------------------------------------------------------------------------
+;; What the browser loads, and what a Content-Security-Policy has to admit for
+;; it to run. Both derive from the same publishable key as the JWKS location.
+;; ---------------------------------------------------------------------------
+
+(def ^:private clerk-js-major
+  "The major version of ClerkJS a page loads. Clerk serves the script from the
+  instance's own Frontend API host and patches it there, which is the reason
+  ADR-0005 accepts a third-party script rather than vendoring one the way
+  ADR-0004 vendors htmx: a pinned copy of a security-critical script is a stale
+  copy the day after it is pinned."
+  "6")
+
+(defn script-url
+  "Where the browser loads ClerkJS from, or nil when no instance is configured.
+  The instance's own Frontend API host serves it — not a public CDN."
+  [publishable-key]
+  (when-let [host (frontend-api publishable-key)]
+    (format "https://%s/npm/@clerk/clerk-js@%s/dist/clerk.browser.js" host clerk-js-major)))
+
+(def ^:private bot-protection-origins
+  "Clerk runs its bot and fraud checks from these. A sign-in that cannot reach
+  them fails a challenge it never manages to show, so a CSP that omits them
+  breaks sign-in rather than hardening it. Per Clerk's own CSP guidance,
+  verified 2026-08-27."
+  ["https://challenges.cloudflare.com" "https://*.protect.clerk.com"])
+
+(defn csp-sources
+  "The origins ClerkJS needs, per CSP directive — and **empty everywhere when no
+  instance is configured**, so an unconfigured deployment sends the strict
+  same-origin policy rather than a policy full of a vendor's hostnames it never
+  contacts.
+
+  `books.handler` composes these into the header. Which hosts Clerk needs is
+  Clerk knowledge, so it lives here rather than in a header string over there."
+  [publishable-key]
+  (let [instance (some->> (frontend-api publishable-key) (format "https://%s"))]
+    {:script-src (if instance (into [instance] bot-protection-origins) [])
+     ;; The `:*` is Clerk's own: its protect hosts answer on ports other than
+     ;; 443, and a bare host in `connect-src` matches only 443.
+     :connect-src (if instance [instance "https://*.protect.clerk.com:*"] [])
+     :img-src (if instance ["https://img.clerk.com"] [])
+     :frame-src (if instance bot-protection-origins [])}))
+
+;; ---------------------------------------------------------------------------
 ;; Fetching the key set. Bounded on both axes, like every other outbound call
 ;; this repo makes.
 ;; ---------------------------------------------------------------------------

@@ -109,7 +109,15 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 #                 a year-long immutable cache entry for
 #   catalog.clj   the port's outcome/reason vocabulary; every rendered state on
 #                 the search page keys on it, so a new reason is a new page state
-#   resources/public/js/  the bytes actually served to every visitor
+#   reader.clj    the Session check port: which outcomes exist, and the
+#                 fail-closed default that decides what an unconfigured deploy
+#                 does with a gated request
+#   clerk.clj     which token claims are load-bearing, the security response
+#                 headers' Clerk origins, and the URL every page loads a
+#                 third-party script from
+#   resources/public/js/   the vendored bytes served to every visitor
+#   resources/public/app/  our own browser code, served to every visitor — it
+#                 is what attaches the session token to an htmx request
 #
 # The env contract is its own surface: books/server.clj is the ONE place
 # GOOGLE_BOOKS_API_KEY, DATABASE_URL, DB_OPTIONAL and PORT are read, so a change
@@ -117,7 +125,8 @@ GUARD_TEST_RE='(\.|_|/)(test|tests|spec|specs)(\.|_|/)|(^|/)(test|tests|spec|spe
 # contract with the platform, invisible in any diff of the app's own routes.
 BEHAVIOR_DELTA_SURFACES='Agent & process surfaces (the constitution, skills, hooks, guards)|^AGENTS\.md$|/AGENTS\.md$|^CLAUDE\.md$|^GEMINI\.md$|^constitution/|^\.claude/|^\.githooks/|^scripts/|^\.github/
 Architecture decisions|^docs/adr/
-HTTP surface (routes, rendered pages, served assets)|^src/books/handler\.clj$|^src/books/views\.clj$|^src/books/assets\.clj$|^src/books/catalog\.clj$|^resources/public/js/
+HTTP surface (routes, rendered pages, served assets)|^src/books/handler\.clj$|^src/books/views\.clj$|^src/books/assets\.clj$|^src/books/catalog\.clj$|^resources/public/js/|^resources/public/app/
+Security posture (the gate, the token claims, the response headers)|^src/books/reader\.clj$|^src/books/clerk\.clj$
 Configuration (env contract)|^src/books/server\.clj$
 Persistence (schema + migrations)|^resources/migrations/'
 

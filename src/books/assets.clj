@@ -32,3 +32,16 @@
   "Where the vendored script is served. Version-stamped on purpose: a URL that
   can never change contents can be cached forever."
   (str "/js/htmx-" htmx-version ".min.js"))
+
+(def session-script-path
+  "Where **this repo's own** browser code is served, from its own scoped static
+  root — `/app/` holds what we wrote, `/js/` holds what we vendored.
+
+  It exists as a file rather than as an inline `<script>` so the
+  Content-Security-Policy can name `'self'` and no `'unsafe-inline'`: every
+  value it needs reaches it as a `data-` attribute instead (ADR-0005).
+
+  The URL carries no version, so unlike htmx it is revalidated rather than
+  cached forever — ADR-0004 clause 6, which couples the policy to the URL
+  rather than to the file."
+  "/app/session.js")

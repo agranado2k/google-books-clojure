@@ -10,13 +10,22 @@
   (:require [books.assets :as assets]
             [books.handler :as handler]
             [books.stub-book-search :as stub]
+            [books.stub-session :as session]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 (defn- app
-  "A database-less app with `book-search` as its Book search port."
+  "A database-less app with `book-search` as its Book search port, and a Reader
+  already signed in.
+
+  /search is gated (ticket #7), and these tests are about what the page renders
+  rather than about who may see it — so the Session check here is a double.
+  `books.auth-test` is where the gate itself is exercised, against the real
+  verifier."
   [book-search]
-  (handler/make-app nil {:db-optional? true :book-search book-search}))
+  (handler/make-app nil {:db-optional? true
+                         :book-search book-search
+                         :session-check (session/signed-in)}))
 
 (defn- search
   "GET /search with the given query string. `:htmx? true` sends the header htmx
@@ -289,7 +298,8 @@
 
 (deftest an-app-wired-with-no-book-search-at-all-still-serves-the-page
   (testing "the default port is the not-configured one — an absent key cannot crash boot"
-    (let [app (handler/make-app nil {:db-optional? true})
+    (let [app (handler/make-app nil {:db-optional? true
+                                     :session-check (session/signed-in)})
           response (app {:request-method :get :uri "/search" :query-string "title=clojure"})]
       (is (= 200 (:status response)))
       (is (= "error" (state-of response)))
@@ -364,7 +374,12 @@
   (doseq [[label opts] search-representations]
     (testing label
       (let [response (search (stub/found [stub/sparse]) (get opts :query "title=clojure") opts)]
-        (is (= "HX-Request, HX-History-Restore-Request"
+        ;; The gate ADDS the credential headers to this list rather than
+        ;; replacing it (ticket #7). Asserted as one exact string, because both
+        ;; halves matter and each is a different bug: drop the htmx headers and a
+        ;; cache replays a fragment into a navigation; drop the credential ones
+        ;; and it serves one Reader's page to the next visitor.
+        (is (= "HX-Request, HX-History-Restore-Request, Authorization, Cookie"
                (get-in response [:headers "Vary"])))))))
 
 (deftest search-results-are-revalidated-rather-than-refused-storage

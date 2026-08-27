@@ -73,6 +73,39 @@ page of explanation, that page is an ADR and the entry points at it.
     banned **Book**, and under a shape (a protocol named `BookSearch`, with a
     `search-volumes` operation) the port has not had since it became a function.
 
+## Readers and sessions
+
+- **Reader** — the signed-in person this app answers to. Entity, identified by
+  **one** value: the `sub` claim of their Clerk session token, carried through
+  the app as `{:id "user_…"}`. Not persisted here — Clerk holds the account, and
+  this repo holds only the identifier that arrives on each request, which is why
+  a Reader has no record, no profile and no row. The name is the product's: this
+  is a reading companion, and the person using it is reading.
+  Ref: `books.reader` (the port's docstring carries the contract), ADR-0005
+  (why the identity is a claim rather than a row, and what verifies it).
+  - _Avoid_: **User** — it names the person's relationship to the software
+    rather than what they are here, and it is the word every framework already
+    uses for something slightly different (a database row, a Clerk object, an OS
+    account). The carve-out is Clerk's own vocabulary, which we do not rename:
+    the `sub` claim's value is spelled `user_…` because Clerk spells it that
+    way, and `Clerk.user` in the browser is Clerk's API.
+  - _Avoid_: **Account**, **Member**, **Subscriber** — each implies a record and
+    a lifecycle this app does not have. There is nothing to sign up for here
+    beyond a Google sign-in.
+- **Session check** — the port the app proves a Reader through: a **plain
+  function of one argument**, the session token as it arrived, answering an
+  outcome map and never throwing. Port. Its real adapter is
+  `books.clerk/session-check`; the default is `books.reader/not-configured`,
+  which refuses everything, so a deployment with no configuration has a closed
+  gate rather than an open one. Injected as `make-app`'s `:session-check`
+  option, exactly as the Book search port is.
+  Ref: `books.reader` (the outcomes and their reasons), ADR-0005.
+  - _Avoid_: **Authentication middleware** — that names one caller of this port
+    (the gate in `books.handler`), not the port itself, and the port is a
+    function with no knowledge of HTTP.
+  - _Avoid_: **Session** as a thing this app owns — it owns none. The token is
+    Clerk's, it lives sixty seconds, and nothing about it is stored here.
+
 ---
 
 ## Words this project does not use
@@ -91,6 +124,11 @@ banned word and the word to use instead.
   (`book-search`, the `:book-search` option, `books.stub-book-search`), and
   `GOOGLE_BOOKS_API_KEY` / the `:books-api-key` option, which name a third
   party's API and are therefore its spelling rather than ours.
+- **User** — ambiguous as a name for **the person this app answers to**: it is
+  the word a database row, a Clerk object and an operating-system account all
+  already use. Use **Reader** for the person, always. The uses that remain are
+  the third party's spelling rather than ours: the `user_…` shape of a Clerk
+  `sub` claim, and `Clerk.user` in the browser.
 - **Result**, **Item**, **Hit** — ambiguous as a name for **a thing the Catalog
   describes**: they name a position in a response. Use **Volume** for that.
   - _Carve-out_: "results" is the right word for the **region of the search

@@ -1,5 +1,6 @@
 (ns books.server
-  (:require [books.db :as db]
+  (:require [books.clerk :as clerk]
+            [books.db :as db]
             [books.google-books :as google]
             [books.handler :as handler]
             [clojure.string :as str]
@@ -38,13 +39,26 @@
   renders. A missing key is a degraded feature, not a dead service.
 
   Returns the running server."
-  [{:keys [http-port database-url db-optional? books-api-key]}]
+  [{:keys [http-port database-url db-optional? books-api-key
+           clerk-publishable-key clerk-authorized-party clerk-jwks-url]}]
   (when database-url
     (db/migrate! database-url))
   (start http-port
          (handler/make-app (db/datasource database-url)
                            {:db-optional? (boolean db-optional?)
                             :book-search (google/book-search {:api-key books-api-key})
+                            ;; Not a secret — a publishable key is rendered into
+                            ;; every page by design, and it is also where the
+                            ;; JWKS location is derived from.
+                            :publishable-key clerk-publishable-key
+                            ;; Absent or unusable Clerk configuration does NOT
+                            ;; crash the boot and does NOT open the gate: the
+                            ;; Session check becomes the one that refuses
+                            ;; everything, and every gated page answers 503.
+                            :session-check (clerk/session-check
+                                            {:publishable-key clerk-publishable-key
+                                             :authorized-party clerk-authorized-party
+                                             :jwks-url clerk-jwks-url})
                             ;; The handler's last-line fault report prints a
                             ;; message built by whatever threw. `book-search`
                             ;; catches Exception, so an Error from the fetch
@@ -62,4 +76,15 @@
                ;; Read here and nowhere else, and never logged: it is a
                ;; credential. It travels as a request header, never in a URL
                ;; (ADR-0003 clause 2, amended 2026-08-10).
-               :books-api-key (System/getenv "GOOGLE_BOOKS_API_KEY")})))
+               :books-api-key (System/getenv "GOOGLE_BOOKS_API_KEY")
+               ;; The Clerk contract. Neither of the first two is a secret — the
+               ;; publishable key is public by design and the authorized party
+               ;; is this app's own origin — and there is deliberately no secret
+               ;; key here at all: verification reads the instance's PUBLIC
+               ;; keys, so nothing on this path can call Clerk's Backend API.
+               :clerk-publishable-key (System/getenv "CLERK_PUBLISHABLE_KEY")
+               :clerk-authorized-party (System/getenv "CLERK_AUTHORIZED_PARTY")
+               ;; An escape hatch for a proxied Frontend API, and unset in the
+               ;; ordinary case: derived from the publishable key, the JWKS
+               ;; location cannot name a different instance than the key does.
+               :clerk-jwks-url (System/getenv "CLERK_JWKS_URL")})))
