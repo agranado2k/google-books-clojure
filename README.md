@@ -93,6 +93,41 @@ under `DB_OPTIONAL=true`.
 | `PORT` | no | `3000` | The HTTP port; the server binds `0.0.0.0`. Railway injects this. |
 | `TEST_DATABASE_URL` | no | `postgresql://postgres:test@localhost:5544/postgres` | Tests only — where the suite finds its Postgres. |
 
+There is deliberately **no `CLERK_SECRET_KEY`**, and no `AUTH_OPTIONAL` to
+mirror `DB_OPTIONAL`. Nothing here calls Clerk's Backend API — verification
+reads the instance's *public* keys — and a switch that turns a gate off is a
+switch that eventually gets left on.
+
+### Setting up a Clerk instance
+
+The server-side gate is covered by the test suite. **The browser half is not**:
+there is no browser in the suite, so the sign-in form, the Google flow, the user
+button and sign-out have never run against a live instance (ADR-0005 records
+this). A smoke test needs a real Clerk app:
+
+1. Create an application at [clerk.com](https://clerk.com). A **development**
+   instance is enough, and its Frontend API is `https://<slug>.clerk.accounts.dev`.
+2. **SSO connections → Add connection → For all users → Google.** On a
+   development instance Clerk supplies shared OAuth credentials, so there is
+   nothing else to configure. A *production* instance needs your own Google
+   Cloud OAuth client (client id + secret, Clerk's redirect URI, and the OAuth
+   app set to the "In production" publishing status).
+3. Copy the **publishable key** (`pk_test_…`) from the dashboard's API keys page.
+4. Run with it, setting the authorized party to the origin you browse from —
+   they must match exactly, scheme and port included, or every token is refused:
+
+```sh
+DB_OPTIONAL=true \
+CLERK_PUBLISHABLE_KEY=pk_test_… \
+CLERK_AUTHORIZED_PARTY=http://localhost:3000 \
+GOOGLE_BOOKS_API_KEY=… \
+clojure -M -m books.server
+```
+
+Then visit `/search` signed out (it should send you to `/sign-in`), sign in with
+Google, and confirm you land back on `/search` and that the header shows Clerk's
+account menu rather than the "Sign in" link.
+
 **No credential — database or API key — goes into a URL string.** Database
 credentials reach the driver as db-spec map values; the Books API key is a
 request header. That is a binding rule, not a preference (ADR-0003 clause 2,

@@ -148,6 +148,17 @@ instance's own Frontend API host, and a security header set that bounds it.**
    URLs with different cache policies (ADR-0004 clauses 5 and 6, unchanged and
    applied).
 
+   **Subresource Integrity cannot substitute for the pin, and it was checked
+   rather than assumed.** Clerk's documented script URL names a *rolling major*
+   (`@clerk/clerk-js@6`), whose bytes change on every patch release, and Clerk
+   publishes no integrity hashes. An `integrity` attribute on a rolling URL
+   breaks the moment Clerk ships a patch — which is precisely the patch clause 5
+   exists to receive. Pinning an exact version to make SRI viable would
+   reintroduce the staleness this decision rejects and put this project in the
+   business of tracking Clerk's releases by hand. So the script is **knowingly
+   unpinned**, and that is the honest word for it: unlike htmx, whose bytes the
+   suite re-hashes on every run, nothing here verifies what Clerk serves.
+
 6. **The security response headers ADR-0004 deferred are now sent, on every
    response** — pages, static assets, the 404 and the 500 alike, because a
    policy with a hole in it is not a policy:
@@ -163,7 +174,30 @@ instance's own Frontend API host, and a security header set that bounds it.**
    - `frame-ancestors 'none'` in the CSP, which is the modern spelling of
      `X-Frame-Options: DENY`.
 
-7. **Explicit non-goals, still.** This does not decide asset fingerprinting for
+7. **The gated set is a list, and the sign-in return path comes out of that
+   list.** `books.handler/gated-paths` names every gated path and a test walks
+   it, asserting each one refuses an anonymous request — so a path added there
+   without being wired through the gate fails the suite instead of shipping
+   open. The path a Reader is returned to after signing in is **chosen from that
+   list**, never echoed back from the request URI, which makes an open redirect
+   structurally impossible rather than something a filter has to catch.
+
+8. **Two transports, and expiry is answered by a redirect.** A document request
+   carries the `__session` cookie; an htmx request carries
+   `Authorization: Bearer` from a token ClerkJS minted moments earlier. Where
+   both arrive the header wins, being the fresher of the two. A signed-out
+   document request is redirected to `/sign-in`; a signed-out **htmx** request
+   gets `401` with `HX-Redirect`, because an XHR follows a `302` transparently
+   and htmx would otherwise swap an entire sign-in page into the results region.
+
+9. **An unconfigured deployment answers `503` and says so.** Not a redirect:
+   sending a Reader to a sign-in page with no Clerk instance behind it is a loop
+   ending in a blank form. A **half**-configured one — a publishable key with no
+   `CLERK_AUTHORIZED_PARTY` — is treated as unconfigured and closed, rather than
+   as "the `azp` check is off", because the second reading is the CSRF hole
+   clause 2 exists to prevent.
+
+10. **Explicit non-goals, still.** This does not decide asset fingerprinting for
    the stylesheet, a Permissions-Policy (getting it wrong disables the WebAuthn
    surface Clerk uses for passkeys, and there is no measured need yet), HSTS
    preloading, organizations or roles, or the Clerk Backend API — no secret key
@@ -204,11 +238,26 @@ instance's own Frontend API host, and a security header set that bounds it.**
   saying so is the point of writing one down. It does **not** protect against a
   malicious ClerkJS release — that script is explicitly allowed, so a
   compromised version runs with full privileges. What it buys is the *other*
-  cases: an injected `<script src>` pointing anywhere else is refused, an
-  injected inline script is refused, `object-src`/`base-uri` tricks are refused,
-  and exfiltration to an arbitrary origin is refused by `connect-src`. That is
-  a real reduction in the surface of an XSS bug in *our* code, and no reduction
-  at all in the surface of a supply-chain compromise of Clerk's.
+  cases: an injected `<script src>` pointing anywhere else is refused, and
+  exfiltration to an arbitrary origin is refused by `connect-src`. That is a
+  real reduction in the surface of an XSS bug in *our* code, and no reduction at
+  all in the surface of a supply-chain compromise of Clerk's.
+- **Bad / trade-off, and the weakest line in the policy**: `script-src` includes
+  `'unsafe-inline'`, so an **injected inline script is not refused**. It is sent
+  because it appears in Clerk's own documented manual policy — but the
+  justification Clerk gives for it is specific to Next.js's App Router, and
+  **whether vanilla ClerkJS needs it could not be verified**, nor tested without
+  a live instance. It is sent on the reasoning that a CSP which breaks sign-in
+  gets switched off wholesale by the next person to debug it, whereas a loose
+  one can be tightened. Nothing this repo wrote requires it: `/app/session.js`
+  exists precisely so our own browser code is a file rather than an inline
+  block, and a test asserts that no page emits an inline `<script>` at all.
+  **Removing it is a named follow-up**, to be attempted against a live Clerk
+  instance; the nonce plus `strict-dynamic` path Clerk documents for its strict
+  mode is the fallback if ClerkJS turns out to need inline execution.
+- **Neutral**: `'unsafe-eval'` is **not** sent, though it appears in Clerk's
+  example policy. Clerk documents it there as a Next.js *development* need and
+  says to remove it in production; this is neither.
 - **Bad / trade-off**: sign-in cannot work without network access to Clerk's
   bot-protection origins, so the CSP has to admit them
   (`challenges.cloudflare.com`, `*.protect.clerk.com`). A CSP that omitted them
@@ -223,6 +272,24 @@ instance's own Frontend API host, and a security header set that bounds it.**
   a redirect to sign-in. ClerkJS refreshes the token in an open tab, so the
   case is narrow — but it is a real one, and the reader sees a sign-in page
   where a handshake would have been invisible.
+- **Honest limitation, and the one to weigh hardest**: **none of the
+  browser-side behaviour has been exercised against a live Clerk instance.** The
+  sign-in mount, the Google flow, the user button, sign-out, and the
+  per-request token attachment are written from Clerk's documentation and are
+  covered by no automated test — there is no browser in this suite. What the
+  tests prove is the server-side gate. A live smoke test is required before any
+  of the browser half is believed, and the README says what an operator must set
+  up to run one.
+- **Honest limitation**: a valid token stays valid for up to sixty seconds after
+  a Reader signs out. Clerk's design accepts this — it is why the lifetime is
+  sixty seconds — and there is no revocation check here, since that would mean a
+  Clerk Backend API call on every gated request.
+- **Honest limitation**: `azp` is only as good as `CLERK_AUTHORIZED_PARTY`. It is
+  a deploy-time string that cannot validate itself: set it wrong and the app
+  refuses everyone, which is at least loud.
+- **Honest limitation**: the gate protects *routes*. It is not authorization —
+  the day two Readers can see each other's bookmarks, the check belongs on the
+  data, and this decision does nothing for it.
 - **Honest limitation**: the `iss` claim is not compared. Binding to the
   instance is done by the *key*: a token is only ever verified against the JWKS
   the publishable key names. Adding an issuer comparison would be belt to that
