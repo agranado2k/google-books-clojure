@@ -8,6 +8,7 @@
   Both paths are covered, because the plain one is what a reader without
   JavaScript gets."
   (:require [books.assets :as assets]
+            [books.catalog :as catalog]
             [books.handler :as handler]
             [books.stub-book-search :as stub]
             [clojure.string :as str]
@@ -251,6 +252,113 @@
       (is (str/includes? rendered "Programming Clojure"))
       (testing "and the form is filled in with what was searched for"
         (is (str/includes? rendered "value=\"clojure\""))))))
+
+;; ---------------------------------------------------------------------------
+;; Paging: moving through the run of pages without losing the query
+;; ---------------------------------------------------------------------------
+
+(defn- paging-links
+  "The paging controls in the rendered region, as `rel` -> `href`. Anchors
+  without a `rel` — the header, the footer, a roadmap card — are not paging
+  controls and are skipped, so this works on the page as well as the fragment.
+  `&amp;` is undone so an href can be compared to the URL it means."
+  [response]
+  (into {}
+        (keep (fn [anchor]
+                (when-let [rel (second (re-find #"rel=\"([a-z]+)\"" anchor))]
+                  [rel (-> (second (re-find #"href=\"([^\"]*)\"" anchor))
+                           (str/replace "&amp;" "&"))])))
+        (re-seq #"<a\b[^>]*>" (body response))))
+
+(defn- page-of
+  "The fragment for a page of `volumes`, reached at `query-string`."
+  [volumes query-string]
+  (search (stub/found volumes) query-string {:htmx? true}))
+
+(def ^:private final-page
+  "One Volume short of a full page: the catalog had no more to give."
+  (vec (rest stub/full-page)))
+
+(deftest a-full-page-offers-the-next-one-and-keeps-the-query
+  (is (= 20 catalog/page-size)
+      "precondition: the offsets spelled out in these tests are that page size")
+  (let [links (paging-links (page-of stub/full-page "title=clojure&author=hickey"))]
+    (is (= {"next" "/search?title=clojure&author=hickey&start=20"} links)
+        "both fields travel with the reader, and the first page has nothing before it")))
+
+(deftest a-page-part-way-in-moves-both-ways
+  (let [links (paging-links (page-of stub/full-page "title=clojure&start=20"))]
+    (testing "back to the page before, which is the first one and so names no offset"
+      (is (= "/search?title=clojure" (get links "prev"))))
+    (testing "and on to the page after"
+      (is (= "/search?title=clojure&start=40" (get links "next"))))))
+
+(deftest the-first-page-shows-no-way-back
+  (is (nil? (get (paging-links (page-of stub/full-page "title=clojure")) "prev"))))
+
+(deftest a-short-final-page-shows-no-way-forward
+  (let [links (paging-links (page-of final-page "title=clojure&start=20"))]
+    (is (= {"prev" "/search?title=clojure"} links)
+        "the catalog could not fill the page, so there is nothing after it")))
+
+(deftest a-single-short-page-shows-no-paging-at-all
+  (is (= {} (paging-links (page-of [stub/sparse] "title=clojure")))))
+
+(deftest paging-controls-belong-to-the-results-state-alone
+  (testing "a prompt, no matches and a failed search have no pages to move between"
+    (is (= {} (paging-links (search (stub/found stub/full-page) nil))))
+    (is (= {} (paging-links (page-of [] "title=zzzz&start=20"))))
+    (is (= {} (paging-links (search (stub/failing :quota) "title=x&start=20" {:htmx? true}))))))
+
+(deftest the-page-offset-reaches-the-port-alongside-the-query
+  (let [seen (atom [])]
+    (search (stub/found stub/full-page seen) "title=clojure&start=40" {:htmx? true})
+    (is (= [{:title "clojure" :start-index 40}] @seen))))
+
+(deftest an-offset-nobody-could-have-clicked-shows-the-first-page
+  ;; `/search?start=abc` is a URL anyone can type, and it used to be able to
+  ;; reach a parser. It is not an error page — it is the first page.
+  (let [seen (atom [])
+        response (search (stub/found stub/full-page seen) "title=clojure&start=abc" {:htmx? true})]
+    (is (= 200 (:status response)))
+    (is (= "results" (state-of response)))
+    (is (= [{:title "clojure"}] @seen) "the garbage never reaches the catalog")
+    (is (nil? (get (paging-links response) "prev")) "and it is rendered as the first page")))
+
+(deftest paging-controls-are-links-first-and-htmx-second
+  ;; The no-JS path has to page too, so each control is a real anchor with a
+  ;; real href; the hx-* attributes upgrade it to a fragment swap exactly as
+  ;; they do for the form. Both halves are on the same element on purpose.
+  (let [rendered (body (page-of stub/full-page "title=clojure&start=20"))
+        anchors (filter #(str/includes? % "rel=\"") (re-seq #"<a\b[^>]*>" rendered))]
+    (is (= 2 (count anchors)) "precondition: this is the page with both controls")
+    (doseq [anchor anchors]
+      (is (str/includes? anchor "hx-get=\"/search?"))
+      (is (str/includes? anchor "hx-target=\"#results\""))
+      (is (str/includes? anchor "hx-swap=\"outerHTML\""))
+      (is (str/includes? anchor "hx-push-url=\"true\"")
+          "a paged result stays shareable and bookmarkable"))
+    (testing "the href is a query string, escaped as HTML requires"
+      (is (str/includes? rendered "&amp;start=40")))))
+
+(deftest the-no-javascript-path-pages-too
+  (testing "a full-page GET answers a whole document carrying the same controls"
+    (let [response (search (stub/found stub/full-page) "title=clojure&start=20")
+          rendered (body response)]
+      (is (str/includes? rendered "<html"))
+      (is (= {"prev" "/search?title=clojure" "next" "/search?title=clojure&start=40"}
+             (paging-links response))))))
+
+(deftest a-paging-link-encodes-what-the-reader-typed
+  (testing "a multi-word query survives the round trip through the URL"
+    (let [next-href (get (paging-links (page-of stub/full-page "title=brave%20new%20world")) "next")]
+      (is (= "/search?title=brave+new+world&start=20" next-href)))))
+
+(deftest a-paging-link-cannot-be-broken-out-of
+  (testing "the query is reader input, and it lands in an href as well as a value"
+    (let [rendered (body (page-of stub/full-page "title=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E"))]
+      (is (not (str/includes? rendered "<script>alert(1)</script>")))
+      (is (nil? (re-find #"<a[^>]*\son[a-z]+=" rendered))))))
 
 ;; ---------------------------------------------------------------------------
 ;; The three states that are not a list of Volumes

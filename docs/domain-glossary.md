@@ -61,6 +61,24 @@ page of explanation, that page is an ADR and the entry points at it.
   why "the Catalog is unavailable" is a state the UI renders rather than an
   exception that escapes a handler. Ref: `books.catalog` (the outcomes),
   `books.google-books` (the adapter that reaches it).
+- **Results page** — the run of Volumes one Book search answers: at most
+  `books.catalog/page-size` of them, beginning at the query's `:start-index`.
+  Read type (never persisted). The Catalog is asked for exactly this many, which
+  is what makes a page it could not fill the honest signal that the matches have
+  run out — `totalItems` is an estimate and is not used. Ref: `books.catalog`
+  (`page-size`), ADR-0004 (rendered into the `#results` region).
+  - _Avoid_: **page** unqualified — this app also serves HTML pages, and the
+    search page holds many Results pages one after another.
+  - _Avoid_: **offset**, **cursor** — the Catalog pages by an index into the
+    matches, and `:start-index` is its own name for it.
+- **Page position** — where a Results page sits in the run of pages a search
+  has: `:only-page`, `:first-page`, `:middle-page` or `:last-page`. Value object,
+  derived by `books.catalog/page-position` from the offset asked for and the
+  number of Volumes that came back. It is what decides which paging controls the
+  results region renders. Ref: `books.catalog`.
+  - _Avoid_: a pair of booleans (`first-page?` / `last-page?`) — the four states
+    are what a reader of a call site needs, and they are what the view chooses
+    between.
 - **Book search** — the port the app searches the Catalog through: a **plain
   function of one argument**, the normalized query map, answering an outcome map
   and never throwing. Port. Its real adapter is `books.google-books/book-search`;
@@ -98,4 +116,5 @@ banned word and the word to use instead.
     `data-state="results"`, and `books.views/search-results`. A region in a
     response is precisely what the word means, so this is not the ambiguity the
     ban is about: the ban is on calling a Volume a result, never on naming the
-    box the Volumes are rendered into.
+    box the Volumes are rendered into — nor, in **Results page**, one page of
+    what that box holds.

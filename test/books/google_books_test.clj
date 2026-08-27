@@ -65,7 +65,16 @@
 
 (deftest the-search-url-caps-the-result-count
   (testing "one page of Volumes, well under the API's own limit of 40"
-    (is (= "20" (param "maxResults" {:title "Clojure"})))))
+    ;; The port owns the number. It has to be the SAME number here, because
+    ;; `catalog/page-position` reads "another page exists" off a page this URL
+    ;; filled — a maxResults of its own would make that derivation lie.
+    (is (= (str catalog/page-size) (param "maxResults" {:title "Clojure"})))))
+
+(deftest the-search-url-asks-for-the-page-the-reader-is-on
+  (testing "the first page names no offset — the catalog's own default is 0"
+    (is (not (str/includes? (google/search-url {:title "Clojure"}) "startIndex"))))
+  (testing "a later page names the Volume it starts at"
+    (is (= "40" (param "startIndex" {:title "Clojure" :start-index 40})))))
 
 (deftest the-search-url-asks-for-exactly-the-rendered-fields-and-no-more
   ;; "and no more" was always the claim; substring-checking the six names could
@@ -98,6 +107,16 @@
         (is (str/includes? url "maxResults=20"))
         (is (str/includes? url "intitle:%22Clojure%22+inauthor:%22Hickey%22"))
         (is (str/includes? url "fields="))))))
+
+(deftest the-adapter-fetches-the-page-the-query-names
+  ;; Same gap as the test above, for the paging half: a `search-url` that
+  ;; carries `startIndex` proves nothing if the offset never reaches the wire.
+  (let [requested (atom nil)]
+    ((adapter (fn [url _key]
+                (reset! requested url)
+                {:status 200 :body "{\"items\":[]}"}))
+     {:title "Clojure" :start-index catalog/page-size})
+    (is (str/includes? @requested (str "startIndex=" catalog/page-size)))))
 
 ;; ---------------------------------------------------------------------------
 ;; The response the catalog gives back

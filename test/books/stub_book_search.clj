@@ -8,7 +8,8 @@
   rather than a `reify` — which is most of why the port is a function.
 
   Not a test namespace: the name deliberately does not end in `-test`, so the
-  runner loads it only as a dependency of the namespaces that require it.")
+  runner loads it only as a dependency of the namespaces that require it."
+  (:require [books.catalog :as catalog]))
 
 (defn answering
   "A Book search that answers `result` for every query. When `seen` (an atom)
@@ -42,6 +43,13 @@
 (def sparse
   "A Volume the Catalog described sparsely — no cover, no date, no blurb."
   {:id "CVBhtQAACAAJ" :title "Programming Clojure" :authors ["Alex Miller"]})
+
+(def full-page
+  "A page of Volumes exactly as long as one page holds. That is the whole
+  signal that another page exists (`books.catalog/page-position`), so it is the
+  fixture every 'there is a next page' test needs, and one Volume shorter is
+  the fixture for the end of the run."
+  (mapv #(assoc sparse :id (str "vol-" %)) (range catalog/page-size)))
 
 (def nameless
   "A Volume the Catalog named neither the title nor the authors of. Not a
