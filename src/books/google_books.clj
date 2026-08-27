@@ -34,11 +34,6 @@
 
 (def ^:private endpoint "https://www.googleapis.com/books/v1/volumes")
 
-(def ^:private max-results
-  "How many Volumes one search asks for. The API's own ceiling is 40; a page
-  of 20 is what the results list shows. Paging is ticket #6."
-  20)
-
 (def ^:private fields
   "The partial-response projection: exactly the fields the card renders, so the
   catalog does not ship (and we do not parse) a payload of everything else."
@@ -131,12 +126,19 @@
 (defn search-url
   "The full volumes URL for `query`. Carries **no credential**: the API key is a
   request header (see `http-fetch`), so this string is safe to log, render, or
-  put in an exception message."
-  [query]
-  (str endpoint
-       "?q=" (q-param query)
-       "&maxResults=" max-results
-       "&fields=" (encode fields)))
+  put in an exception message.
+
+  `maxResults` is `catalog/page-size` rather than a number of this namespace's
+  own: `catalog/page-position` reads 'there is another page' off a page this
+  URL asked to be filled, and a second copy of the number would eventually
+  disagree with the first. The offset is omitted for the first page, where the
+  API's own default of 0 is the answer."
+  [{:keys [start-index] :as query}]
+  (cond-> (str endpoint
+               "?q=" (q-param query)
+               "&maxResults=" catalog/page-size
+               "&fields=" (encode fields))
+    start-index (str "&startIndex=" start-index)))
 
 ;; ---------------------------------------------------------------------------
 ;; The response
