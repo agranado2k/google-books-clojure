@@ -201,7 +201,7 @@ if [ "$engine" = "fallback" ]; then
 	for article in constitution/*.md; do
 		[ -e "$article" ] || continue
 		case "$article" in
-		constitution/shared-invariants.md) continue ;; # shared layer: portability is the harness's job
+		constitution/shared-invariants.md | constitution/shared-code-craft.md) continue ;; # shared layer: portability is the harness's job
 		esac
 		scan_manual "$article"
 	done

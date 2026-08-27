@@ -26,8 +26,8 @@
 // is the fourth rule, and the reason it exists is drift: a tool-specific file
 // that CAN hold a rule eventually does, and then the repo has two manuals whose
 // difference nobody can see. Like every other check here it is evaluated only
-// where the root manual exists — an unbootstrapped tree has no shims to be
-// wrong about.
+// where the root manual exists — a tree whose manual has not been written yet
+// has no shims to be wrong about either.
 //
 // Reachability closes the other half of the article hole. Progressive
 // disclosure means an article is loaded only because the root pointed at it, so
@@ -113,7 +113,8 @@ export function run(ctx) {
   // Everything below needs a root manual to exist. Reachability is only a
   // question when there IS a root to be reached from, and a shim is only wrong
   // when there is a manual for it to have failed to import — fixtures that
-  // model articles alone, and the kit's own unbootstrapped tree, stay silent.
+  // model articles alone, and a tree whose manual is not written yet, stay
+  // silent.
   const root = ctx.read(rootManual);
   if (root == null) return out;
 

@@ -112,6 +112,11 @@ Load the article that covers what you are about to do — do not preload them al
   not once per task. **This file is shared layer** (see `VERSION`): it is copied
   verbatim from the kit and is not edited here — a local exception belongs in a
   local article instead, and the shared copy stays byte-identical.
+- `constitution/shared-code-craft.md` — how the code itself is written: ten
+  portable rules for the diff an agent produces, from the smallest sufficient
+  diff to diagrams drawn as SVG in HTML reports, never ASCII art. Load it
+  before writing or reviewing code. **Shared layer** too (see `VERSION`), same
+  terms as the invariants.
 - `constitution/local-engineering.md.template` — this stack: style, boundaries,
   test tiers, what this repo is *not*.
 - `constitution/local-workflow.md.template` — this repo's process: commits,
