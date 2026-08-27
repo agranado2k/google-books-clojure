@@ -25,8 +25,8 @@ is in flight. Do not restate the README.
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
 | **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
-| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer 0.3.0 → 0.4.0 update, open as a PR. |
-| **Kit / shared layer** | 0.4.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
+| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer update, now carried on to 0.9.0, open as a PR. |
+| **Kit / shared layer** | 0.9.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families, plus one domain override (`AGENT_TIER_IMPLEMENTER_CONTENT`). `constitution/shared-code-craft.md` is a second shared article. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
 | **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
 
 ### Open questions / unresolved decisions
@@ -240,3 +240,62 @@ who follows the file they started reading lands on 0.4.0 with the resolver on
 disk, no config, no callers, a green gate, and no signal that anything is
 missing. Re-read `UPDATING.md` after step 5 of any future update, before
 believing you are done.
+
+### 2026-08-27 — Shared layer moved 0.4.0 → 0.9.0; the resolver was a security fix
+
+Two more commits on the same branch, same Part 1 / Part 2 split.
+
+**Part 1 — the shared layer.** Step 3 printed `clean` for all twelve 0.4.0
+files again. `constitution/shared-code-craft.md` joined the manifest — ten
+portable rules for the diff an agent produces — and three shared scripts changed
+behaviour. The step-6 gate came back **red** with `article-unreferenced`, which
+is the recipe working as designed: the article is shared layer, the pointer to
+it lives in our `AGENTS.md`, and the red is what forces both halves to land
+together. One pointer line, and it went green.
+
+**Part 2.** `/explain-diff` is new (interactive HTML explainer for a diff,
+branch or PR — it teaches, it never reviews). `/review-pr` gained an OWASP
+Agentic Skills Top 10 audit for diffs that touch agent-facing surfaces, and the
+`ai-review` prompt file gained the same. `/to-tickets` and `/implement` learned
+the optional `Domain:` line. `/tdd` and `/review-pr` now both point at the new
+craft article.
+
+Four things worth carrying forward.
+
+**0.6.0 was a security fix and we were carrying the vulnerable copies.** Both
+`scripts/agents.lib.sh` and `scripts/guards.lib.sh` resolved their config from
+the *caller's* current directory, so running either while standing inside a
+cloned third-party repo sourced — that is, executed — that clone's config. Our
+own root manual names cloned third-party repos as untrusted content. Verified
+before and after against a throwaway hostile clone: the 0.4.0 copies ran the
+attacker's config and took its value; the 0.9.0 copies keep ours, and the guards
+loader prints an explicit refusal. The same 0.4.0 resolver also rejected every
+real tier name under `zsh` (word-splitting), killed an interactive zsh that
+sourced it, and aborted silently under `set -e`. All four now behave.
+
+**We mapped one task domain, and deliberately only one.**
+`AGENT_TIER_IMPLEMENTER_CONTENT='opus'`. Prose at implementer tier — ADRs, this
+diary, PRD and ticket bodies, the glossary, `/explain-diff`'s reports — has no
+oracle: `clojure -X:test` and `scripts/check.sh` fail loudly on bad code and say
+nothing about a badly argued decision record that every later session then
+re-reads. `code` is left unmapped because it is what `AGENT_TIER_IMPLEMENTER`
+already means here, and a domain key that restates its own fallback is noise.
+
+**§9c now answers the question we recorded last time.** The 0.4.0 recipe
+classified `docs-gate.yml` and `tdd-pairing.yml` as `NEW` and would have had us
+re-add two workflows `ci.yml` already runs. 0.9.0's loop asks a second question —
+did we have the file at the release we are on? — and prints `DECLINED` for both.
+The note we left for our future selves was consumed by the tool instead.
+
+**§9d has a live bug: do not run its ADD branch on
+`scripts/docs-conformance/local-vocabulary.mjs`.** In the kit that path exists
+only as `local-vocabulary.mjs.template`; bootstrap stamps it. So the recipe's
+`kit cat-file -e` test says "not present at either ref", prints `ADD`, and runs
+`kit show "$TO_REF:$C" >"$C"` — the redirect truncates our real vocabulary file
+to zero bytes *before* `kit show` fails. Reproduced in a sandbox, not on the
+real file. Relatedly, §9d's `keys()` extractor only matches shell `NAME=`, so it
+finds nothing at all in the two `.mjs` configs it names and its key-set diff is
+vacuously empty for them — which is how it missed the change that actually
+mattered this release: `portability.files` in `scripts/docs-conformance/config.mjs`
+had to gain the new shared article by hand, or the gate would never have checked
+it for product-vocabulary leaks. Both reported upstream.
