@@ -128,13 +128,21 @@
   small an exception as it can be: it is loaded from the instance's own
   Frontend API host rather than a public CDN, and the publishable key travels
   as an ATTRIBUTE, so the page still carries no inline script for a
-  Content-Security-Policy to have to allow."
-  [{:keys [script-url publishable-key]}]
+  Content-Security-Policy to have to allow.
+
+  Since clerk-js 6 the components ship separately, so this is TWO tags from the
+  same host: the runtime, then the UI bundle whose constructor `session.js`
+  hands to `Clerk.load`. Without the second, `mountSignIn` throws and no
+  sign-in form ever appears."
+  [{:keys [script-url ui-script-url publishable-key]}]
   (when script-url
-    [:script {:src script-url
-              :data-clerk-publishable-key publishable-key
-              :crossorigin "anonymous"
-              :defer "defer"}]))
+    (list
+     [:script {:src script-url
+               :data-clerk-publishable-key publishable-key
+               :crossorigin "anonymous"
+               :defer "defer"}]
+     (when ui-script-url
+       [:script {:src ui-script-url :crossorigin "anonymous" :defer "defer"}]))))
 
 (defn layout
   "The shared page frame: <head> with the Tailwind stylesheet and the scripts,

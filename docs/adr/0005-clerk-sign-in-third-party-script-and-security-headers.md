@@ -88,7 +88,9 @@ question.
    can be vendored precisely because it is inert — an attribute vocabulary and
    an XHR — and the trade that makes a stale htmx acceptable makes a stale
    sign-in library unacceptable. Clerk does not support a self-hosted
-   `clerk.browser.js`, and running one anyway means running a version its
+   `clerk.browser.js` (and, since clerk-js 6, the separate `ui.browser.js`
+   whose constructor `Clerk.load` must be handed — without it `mountSignIn`
+   throws and no form appears), and running one anyway means running a version its
    Frontend API has stopped expecting.
 3. **Load it from a public CDN** (`jsdelivr`, `unpkg`) — rejected outright.
    That is strictly worse than option 1 on every axis: a *third* origin with no
@@ -242,19 +244,17 @@ instance's own Frontend API host, and a security header set that bounds it.**
   exfiltration to an arbitrary origin is refused by `connect-src`. That is a
   real reduction in the surface of an XSS bug in *our* code, and no reduction at
   all in the surface of a supply-chain compromise of Clerk's.
-- **Bad / trade-off, and the weakest line in the policy**: `script-src` includes
-  `'unsafe-inline'`, so an **injected inline script is not refused**. It is sent
-  because it appears in Clerk's own documented manual policy — but the
-  justification Clerk gives for it is specific to Next.js's App Router, and
-  **whether vanilla ClerkJS needs it could not be verified**, nor tested without
-  a live instance. It is sent on the reasoning that a CSP which breaks sign-in
-  gets switched off wholesale by the next person to debug it, whereas a loose
-  one can be tightened. Nothing this repo wrote requires it: `/app/session.js`
-  exists precisely so our own browser code is a file rather than an inline
-  block, and a test asserts that no page emits an inline `<script>` at all.
-  **Removing it is a named follow-up**, to be attempted against a live Clerk
-  instance; the nonce plus `strict-dynamic` path Clerk documents for its strict
-  mode is the fallback if ClerkJS turns out to need inline execution.
+- **Resolved 2026-08-27 — `script-src 'unsafe-inline'` is gone.** The original
+  record sent it because Clerk's documented manual policy lists it and this
+  repo could not verify whether vanilla ClerkJS needed it. It does not: Clerk
+  documents it only for Next.js App Router's inline bootstrap, neither Clerk
+  bundle contains `eval` or `new Function`, and every script Clerk injects is
+  `src`-based. Verified against the live instance in a browser — ClerkJS loads,
+  `mountSignIn` renders the Google button and the form, and the console reports
+  no CSP violation. The policy now carries no inline-script allowance at all,
+  and a test pins its absence. `style-src 'unsafe-inline'` remains genuinely
+  required (Emotion styles the components at runtime; without it the form
+  renders unstyled while ClerkJS still reports success).
 - **Neutral**: `'unsafe-eval'` is **not** sent, though it appears in Clerk's
   example policy. Clerk documents it there as a Next.js *development* need and
   says to remove it in production; this is neither.

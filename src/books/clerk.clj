@@ -112,12 +112,26 @@
   copy the day after it is pinned."
   "6")
 
+(def ^:private clerk-ui-major
+  "The major version of Clerk's UI bundle. Since clerk-js 6, the components are
+  NOT in clerk.browser.js: `mountSignIn` throws \"Clerk was not loaded with Ui
+  components\" unless this second script is loaded and its constructor handed to
+  `Clerk.load`. Same Frontend API host, so it admits no new origin."
+  "1")
+
 (defn script-url
   "Where the browser loads ClerkJS from, or nil when no instance is configured.
   The instance's own Frontend API host serves it — not a public CDN."
   [publishable-key]
   (when-let [host (frontend-api publishable-key)]
     (format "https://%s/npm/@clerk/clerk-js@%s/dist/clerk.browser.js" host clerk-js-major)))
+
+(defn ui-script-url
+  "Where the browser loads Clerk's UI components from, or nil when no instance
+  is configured. Separate from `script-url` since clerk-js 6 split them apart."
+  [publishable-key]
+  (when-let [host (frontend-api publishable-key)]
+    (format "https://%s/npm/@clerk/ui@%s/dist/ui.browser.js" host clerk-ui-major)))
 
 (def ^:private bot-protection-origins
   "Clerk runs its bot and fraud checks from these. A sign-in that cannot reach
@@ -139,7 +153,12 @@
     {:script-src (if instance (into [instance] bot-protection-origins) [])
      ;; The `:*` is Clerk's own: its protect hosts answer on ports other than
      ;; 443, and a bare host in `connect-src` matches only 443.
-     :connect-src (if instance [instance "https://*.protect.clerk.com:*"] [])
+     ;; Telemetry is on by default and ClerkJS really does POST to it on load;
+     ;; a policy that omits it reports a violation on every page view.
+     :connect-src (if instance
+                    [instance "https://*.protect.clerk.com:*"
+                     "https://clerk-telemetry.com" "https://*.clerk-telemetry.com"]
+                    [])
      :img-src (if instance ["https://img.clerk.com"] [])
      :frame-src (if instance bot-protection-origins [])}))
 

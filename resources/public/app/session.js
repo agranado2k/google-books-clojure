@@ -97,7 +97,16 @@
       return;
     }
 
-    window.Clerk.load().then(function () {
+    // Since clerk-js 6 the UI components live in a second bundle, and
+    // `mountSignIn` throws "Clerk was not loaded with Ui components" unless its
+    // constructor is handed in here. The constructor is absent only if that
+    // script failed to load, in which case load() still gives a working session
+    // (token refresh, the gate) with no mountable components.
+    var options = window.__internal_ClerkUICtor
+      ? { ui: { ClerkUI: window.__internal_ClerkUICtor } }
+      : {};
+
+    window.Clerk.load(options).then(function () {
       mountSessionNav(window.Clerk);
       mountSignIn(window.Clerk);
       keepTokenFresh(window.Clerk);
