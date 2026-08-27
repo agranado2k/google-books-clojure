@@ -13,7 +13,8 @@
 
   A **Book search is a plain function of one argument**: the query map, already
   normalized by `query` below — optional `:title` and `:author`, trimmed, with
-  blank fields dropped.
+  blank fields dropped, plus the optional `:start-index` naming which page of
+  that search to answer.
 
   It returns a map, and **never throws**: an unreachable or refusing Catalog is
   an outcome the page renders, not an exception the handler catches.
@@ -36,11 +37,18 @@
                                   it is rendered escaped, never as raw markup
      :thumbnail      \"https://…\" may be absent}
 
-  Paging is not part of this signature yet (ticket #6): it arrives as another
-  optional key on the query map, which is why the query is a map rather than
-  two positional arguments — and why the port is a function of ONE argument
-  rather than a protocol whose only method would have to grow a parameter."
+  Paging is the `:start-index` key: which Volume of the whole run of matches
+  the answered page starts at, absent for the first page. It arrived as another
+  key on the query map, which is why the query is a map rather than two
+  positional arguments — and why the port is a function of ONE argument rather
+  than a protocol whose only method would have to grow a parameter."
   (:require [clojure.string :as str]))
+
+(def ^:private search-fields
+  "The fields that say WHAT to search for. `:start-index` is deliberately not
+  one of them: it says which page of a search to show, so it cannot make a
+  search out of nothing (see `blank-query?`)."
+  [:title :author])
 
 (defn- single
   "One value for a request parameter, whatever shape the parameter middleware
@@ -57,24 +65,39 @@
   [v]
   (if (sequential? v) (first v) v))
 
+(defn- offset
+  "A raw `start` parameter as the Volume the page begins at, or nil.
+
+  Total, like `single`, and for the same reason: `/search?start=abc` is a URL
+  anyone can type, so anything that is not a whole non-negative number is not
+  an error — it is simply no offset, and the reader gets the first page. Zero
+  is that first page too, so it is dropped rather than carried."
+  [v]
+  (when-let [n (some-> (single v) str str/trim parse-long)]
+    (when (pos? n) n)))
+
 (defn query
   "Normalize raw request params into a search query: trimmed, and with blank
   fields dropped so `blank-query?` can answer honestly and so an adapter never
-  builds `intitle:\"\"`.
+  builds `intitle:\"\"`. `:start-index` comes through as a number or not at all.
 
   Total by contract: **no request may make this throw** (see `single`)."
   [params]
-  (into {}
-        (keep (fn [k]
-                (let [v (some-> (single (get params k)) str str/trim)]
-                  (when (seq v) [k v]))))
-        [:title :author]))
+  (let [terms (into {}
+                    (keep (fn [k]
+                            (let [v (some-> (single (get params k)) str str/trim)]
+                              (when (seq v) [k v]))))
+                    search-fields)
+        start (offset (:start-index params))]
+    (cond-> terms
+      start (assoc :start-index start))))
 
 (defn blank-query?
   "Whether there is nothing to search for. A blank query is not an empty result
-  — the page says 'type something', not 'no matches'."
+  — the page says 'type something', not 'no matches'. Only the search fields
+  count: `/search?start=40` with nothing typed is still nothing to search for."
   [query]
-  (empty? query))
+  (not-any? query search-fields))
 
 (def not-configured
   "The Book search used when nothing has been wired in: every search is an
