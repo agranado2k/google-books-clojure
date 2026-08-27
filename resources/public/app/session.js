@@ -14,7 +14,7 @@
   'use strict';
 
   var LANDING_URL = '/';
-  var DEFAULT_RETURN_URL = '/library';
+  var DEFAULT_RETURN_URL = '/search';
 
   // Clerk mints a session token that lives sixty seconds and refreshes it in
   // the background. htmx's `configRequest` hook is synchronous and cannot wait
