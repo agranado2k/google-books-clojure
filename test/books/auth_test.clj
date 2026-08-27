@@ -227,13 +227,19 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest the-gated-routes-are-named-in-one-place
-  (testing "the seam the bookmarks pages will use is data, not a scattered wrapper"
-    (is (= ["/search"] handler/gated-paths))))
+  (testing "the seam the bookmarks pages use is data, not a scattered wrapper"
+    (is (= {"/search" #{:get :head}
+            "/bookmarks" #{:post :delete}}
+           handler/gated-paths))))
 
 (deftest every-gated-path-actually-refuses
   ;; The list above is only a seam if the router honours it. This asserts on the
   ;; list rather than on "/search", so a path added there without being wired
-  ;; through the gate fails here instead of shipping open.
-  (testing "each named path refuses a signed-out request"
-    (doseq [path handler/gated-paths]
-      (is (= 302 (:status (GET path))) (str path " must be gated")))))
+  ;; through the gate fails here instead of shipping open — and it probes each
+  ;; path by the METHODS it answers, so a mutation route is not waved through by
+  ;; a GET that 404s and looks refused.
+  (testing "each named path refuses a signed-out request, by every method it answers"
+    (doseq [[path methods] handler/gated-paths
+            method methods]
+      (is (= 302 (:status ((app) {:request-method method :uri path})))
+          (str (name method) " " path " must be gated")))))

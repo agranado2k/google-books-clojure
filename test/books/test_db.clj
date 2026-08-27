@@ -13,6 +13,7 @@
   Not a test namespace: the name deliberately does not end in `-test`, so the
   runner loads it only as a dependency of the namespaces that require it."
   (:require [books.db :as db]
+            [clojure.string :as str]
             [next.jdbc :as jdbc])
   (:import (java.net ServerSocket)))
 
@@ -37,14 +38,50 @@
                       {:test-database-url test-database-url}
                       e)))))
 
+(def ^:private migrated-tables
+  "Every table the migrations create. Dropped alongside Migratus's own tracking
+  table, so a re-proven `migrate!` starts from nothing — otherwise the first run
+  after a real migration lands leaves a table behind that the next run's `create
+  table` collides with, and the suite fails on state rather than on behaviour."
+  ["bookmarks"])
+
+(defn- reset-schema!
+  "Put the database back to empty: no domain tables, and no record that any
+  migration ever ran.
+
+  ONE statement, not one per table. A run interrupted between two drops would
+  otherwise leave the half-state that neither `migrate!` nor the app can recover
+  from on its own — a table present with its migration unrecorded crashes the
+  next boot, and a migration recorded with its table gone breaks the next
+  insert."
+  []
+  (jdbc/execute-one! (db/datasource test-database-url)
+                     [(str "drop table if exists "
+                           (str/join ", " (conj migrated-tables "schema_migrations")))]))
+
 (defn reset-migrations-fixture
-  "A `:once` fixture that drops Migratus's tracking table before the namespace
-  runs, so `migrate!` is genuinely re-proven on every run rather than
-  short-circuited by state a previous run left behind."
+  "A `:once` fixture that empties the schema before the namespace runs, so
+  `migrate!` is genuinely re-proven on every run rather than short-circuited by
+  state a previous run left behind."
   [f]
   (require-postgres!)
-  (jdbc/execute-one! (db/datasource test-database-url)
-                     ["drop table if exists schema_migrations"])
+  (reset-schema!)
+  (f))
+
+(defn migrated-fixture
+  "A `:once` fixture for a namespace that needs the schema rather than the
+  migration machinery: it runs the migrations and leaves whatever is already
+  applied alone."
+  [f]
+  (require-postgres!)
+  (db/migrate! test-database-url)
+  (f))
+
+(defn empty-bookmarks-fixture
+  "An `:each` fixture leaving no Bookmark behind, so one test's rows can never be
+  another's precondition."
+  [f]
+  (jdbc/execute-one! (db/datasource test-database-url) ["delete from bookmarks"])
   (f))
 
 (defn closed-port

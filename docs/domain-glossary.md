@@ -124,6 +124,29 @@ page of explanation, that page is an ADR and the entry points at it.
   - _Avoid_: **Session** as a thing this app owns — it owns none. The token is
     Clerk's, it lives sixty seconds, and nothing about it is stored here.
 
+## Bookmarks
+
+- **Bookmark** — one Reader's decision to keep one Volume. Entity, and the only
+  thing this app persists: a row in `bookmarks` identified by the pair
+  (Reader id, Volume id), which the database enforces as unique, so a Volume is
+  either bookmarked by a Reader or it is not — there is no count and no second
+  copy. The row also carries a **snapshot** of the Volume — its title, authors,
+  thumbnail and published date, copied at bookmark time and never refreshed — so
+  a page listing Bookmarks draws them without asking the Catalog. Strictly
+  per-Reader: every statement that touches the table is scoped by the Reader id
+  from the verified session, so one Reader's Bookmarks are not merely hidden from
+  another, they are unreachable. Ref: `books.bookmarks`, ADR-0006 (the schema and
+  the scoping), ADR-0007 (how the request that creates or removes one proves
+  itself).
+  - _Avoid_: **Favorite**, **Like**, **Star** — each names an opinion about a
+    Volume. A Bookmark says "come back to this", which is a place-keeping act and
+    the reason the product exists.
+  - _Avoid_: **Save**, **Saved book** — "save" is what every write does, and
+    "book" is banned for what a search returns (see **Volume**).
+  - _Avoid_: **Library**, **Shelf**, **Collection** — these name a *set* of
+    Bookmarks, not one of them, and none of them is a thing this app models: a
+    Reader has their Bookmarks and nothing groups them.
+
 ---
 
 ## Words this project does not use
