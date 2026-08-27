@@ -1,0 +1,395 @@
+# Cross-provider AI review on every pull request — A PLACEHOLDER, INERT ON PURPOSE.
+#
+# Note the `.example` suffix: GitHub Actions only reads `.yml`/`.yaml`, so this
+# file sits in .github/workflows/ doing nothing until you rename it:
+#
+#     git mv .github/workflows/ai-review.example.yml .github/workflows/ai-review.yml
+#
+# Same install contract as commitlint.yml.example — bootstrap copies it in, you
+# turn it on. Nothing else has to change first: each job checks for its own
+# provider secret and skips itself with a `::notice::` when the secret is
+# absent, so renaming with one key configured (or none) is a working state, not
+# a wall of red.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS WORKFLOW EXISTS, and why it is not just "a bot that comments"
+# ---------------------------------------------------------------------------
+# `/implement`'s Deliver phase asks for an independent review the moment it
+# opens the PR, and it prefers a forge workflow like this one over spawning an
+# in-harness reviewer — for a structural reason, not a stylistic one:
+#
+#   CI holds the secrets, so a workflow can call a reviewer from a DIFFERENT
+#   VENDOR than the one running the session that wrote the code.
+#
+# That cross-provider leg is unreachable from inside the authoring harness, and
+# a reviewer sharing the author's model family shares the author's blind spots.
+# Hence two jobs below, from two vendors, asked the SAME question. Both are
+# optional; running only one is still worth having, but the second vendor is
+# where the disagreement — the actual signal — comes from.
+#
+# ---------------------------------------------------------------------------
+# THE INVARIANTS — true of every job here, and of any provider you add
+# ---------------------------------------------------------------------------
+#   · Fires on `opened, synchronize, ready_for_review, reopened`. Every one of
+#     those is a moment the diff a human will read has changed.
+#   · ADVISORY, never gating. Each review step is `continue-on-error: true`, so
+#     a provider outage degrades the run to a no-op instead of failing the PR.
+#     DO NOT ADD THESE JOBS TO YOUR REQUIRED STATUS CHECKS: the moment a bot's
+#     opinion can block a merge, an outage at the vendor is an outage in your
+#     ability to ship, and the "advisory" above becomes a lie.
+#   · Concurrency-cancelled per PR. Push three times in a minute and you want
+#     one review of the final diff, not three reviews of three dead ones.
+#   · Drafts are skipped. `ready_for_review` is in the trigger list, so the
+#     review arrives the moment the PR stops being a draft — reviewing before
+#     that spends a provider call on a diff the author is still writing.
+#   · Read-only on `contents`, write only on the PR conversation. These jobs
+#     post review comments. They never commit, never push, never approve, and
+#     never merge — merging is a human action with a human's name on it
+#     (shared invariant §7), and this file must not become the exception.
+#   · `pull_request`, NEVER `pull_request_target`. On `pull_request` a fork PR
+#     runs secret-free: every provider gate reads "not configured" and the job
+#     skips itself, so fork contributions go unreviewed by these bots. That is
+#     the accepted cost, and it is the smaller one. `pull_request_target` is
+#     the switch that appears to fix it, and what it actually does is run this
+#     workflow with the BASE repository's secrets and a write-scoped token
+#     against code the fork author wrote — handing any stranger who opens a PR
+#     both your provider key and a token that posts under your repository's
+#     name. Blast radius of staying on `pull_request`: one review that did not
+#     happen. Blast radius of the other: your credentials. A third provider job
+#     inherits this trigger; it does not get its own.
+#
+# ---------------------------------------------------------------------------
+# WHAT IS PROVIDER-SPECIFIC — the three choices, marked inline as
+# `PROVIDER CHOICE n/3` in both jobs. To add a third reviewer, copy a job and
+# change exactly these three things:
+#
+#   1/3  THE INVOCATION — which action (or CLI) runs the model, and whatever
+#        vendor-specific wiring it needs (turn limits, MCP servers, extensions).
+#   2/3  THE SECRET NAME — the repository secret holding that vendor's
+#        credential. Add it under Settings → Secrets and variables → Actions.
+#   3/3  THE PROMPT — the instruction. Everything else about a review workflow
+#        is plumbing; this is the review. It is NOT in this file: it lives in
+#        `ai-review-prompt.md` beside it, and each job marks the step that
+#        reads it. A third provider reads the same file; it does not get a
+#        prompt of its own.
+#
+# ONE prompt file, not one block per job. Asking two vendors different questions
+# and then comparing their answers measures the prompts, not the models — and
+# two YAML blocks that must stay byte-identical are two blocks that eventually
+# are not. A file cannot drift from itself. A test in this kit
+# (`tests/ai-review-template.test.sh`) asserts that both jobs still read it and
+# that no job has grown an inline prompt, so forking the prompts per vendor is a
+# decision to record, not a check to delete.
+#
+# The file carries two markers, `%%PR_NUMBER%%` and `%%REPOSITORY%%`, because a
+# workflow expression is evaluated in the workflow and never inside the data it
+# reads. The step that loads the file substitutes them.
+#
+# ---------------------------------------------------------------------------
+# WHAT THE PROMPT SAYS, and why it says so little about your project
+# ---------------------------------------------------------------------------
+# It points the reviewer at AGENTS.md and the constitution articles instead of
+# restating your rules here. A prompt that lists your conventions is a second
+# copy of the manual that nothing updates — it goes stale silently and reviews
+# a project you no longer have. One source of truth, referenced.
+#
+# The one thing the prompt DOES spell out is the two-axis split (shared
+# invariant §5), because it is a rule about the review's own output shape and
+# no reviewer infers it: standards findings are verifiable from the diff and an
+# agent may fix them; behavior findings are not, and go to a human as a
+# confirm-list the bot must never resolve.
+#
+# TEMPLATE. bootstrap.sh copies this into .github/workflows/ of YOUR project,
+# together with `ai-review-prompt.md`, which the jobs below read. The kit itself
+# does not run it.
+
+name: AI review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+# One review per PR, always of the newest diff.
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # Variant A — Anthropic Claude, via the official claude-code-action.
+  # ==========================================================================
+  claude-review:
+    name: Claude review (advisory)
+    # A draft PR is work in progress by definition. Reviewing it burns a
+    # provider call on a diff the author has not finished and buries the real
+    # review under stale comments — and `ready_for_review` is already in the
+    # trigger list above, so the review fires the moment the draft flag comes
+    # off. Both jobs carry this line; a third provider needs it too.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write # write: it posts the review comments
+      issues: read
+      # No id-token: this job authenticates with a repository secret and posts
+      # with the workflow's own GITHUB_TOKEN. Neither path uses OIDC, so the
+      # permission is not granted.
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      # Absence of a key is a configuration state, not a failure. Without this
+      # gate, a project that wired only the other vendor gets a red step on
+      # every PR forever and learns to ignore this workflow.
+      - name: Is this provider configured?
+        id: gate
+        env:
+          # ▸ PROVIDER CHOICE 2/3 — THE SECRET NAME
+          PROVIDER_KEY: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$PROVIDER_KEY" ]; then
+            echo "::notice::CLAUDE_CODE_OAUTH_TOKEN is not set — skipping the Claude review."
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      # ▸ PROVIDER CHOICE 3/3 — THE PROMPT, loaded from the one file both jobs
+      # read. This step is identical in every provider job on purpose: the only
+      # thing a provider changes about the prompt is which input it feeds it to.
+      - name: Load the review prompt
+        id: prompt
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # A RANDOM heredoc delimiter, not a fixed one: this file comes from the
+          # PR's own checkout, so a fixed marker is a line an author could write
+          # to close the block early and append arbitrary step outputs.
+          delim="PROMPT_EOF_$(openssl rand -hex 8)"
+          {
+            printf 'prompt<<%s\n' "$delim"
+            sed -e "s|%%PR_NUMBER%%|$PR_NUMBER|g" \
+              -e "s|%%REPOSITORY%%|$REPOSITORY|g" \
+              .github/workflows/ai-review-prompt.md
+            printf '%s\n' "$delim"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Claude review
+        if: steps.gate.outputs.configured == 'true'
+        # Advisory: a vendor outage must not fail the PR check. The review just
+        # does not happen this run.
+        continue-on-error: true
+        # ▸ PROVIDER CHOICE 1/3 — THE INVOCATION
+        uses: anthropics/claude-code-action@v1
+        with:
+          # ▸ PROVIDER CHOICE 2/3 — THE SECRET NAME
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Post as the workflow's own token rather than minting an App token
+          # through the OIDC exchange. That exchange runs a "workflow file must
+          # match the default branch" check, which 401s on any PR that edits
+          # this file — i.e. it breaks exactly when you are changing the review.
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          # A `pull_request` event carries no comment text for the action to
+          # ride on, so force tag mode + a tracking comment to make the review
+          # attach reliably.
+          track_progress: true
+          # ▸ PROVIDER CHOICE 3/3 — THE PROMPT, from the file loaded above.
+          prompt: ${{ steps.prompt.outputs.prompt }}
+          # ▸ PROVIDER CHOICE 1/3 (continued) — vendor-specific run limits and
+          # the tool boundary. A model id belongs here too (`--model <id>`);
+          # this kit ships none, on purpose — model ids rot faster than anything
+          # else it could carry, and the action's default is a working answer
+          # until you pin one.
+          #
+          # THE BOUNDARY IS THE DENY-LIST, and that is not a shortcut. This
+          # action's base GitHub tools are ALWAYS included and `--allowedTools`
+          # only ADDS to them, so an allow-list cannot narrow anything here —
+          # and the base set includes editing and committing files. The
+          # allow-list below is therefore documentation of the review posture
+          # (read the tree, grep it) while `--disallowedTools` is what actually
+          # removes the write and shell verbs. `contents: read` above is the
+          # second wall behind it: even a tool that slipped through cannot land
+          # a commit with a read-only token.
+          claude_args: |
+            --max-turns 25
+            --allowedTools "Read,Grep,Glob"
+            --disallowedTools "Bash,Write,Edit,MultiEdit,NotebookEdit"
+
+  # ==========================================================================
+  # Variant B — Google Gemini, via the official run-gemini-cli action.
+  #
+  # No extension is installed. The vendor ships a `code-review` extension that
+  # brings its own review prompt and its own opinion about output shape, which
+  # is precisely what this workflow supplies itself — running both would mean
+  # two prompts arguing about one review, and the cross-provider comparison
+  # would be measuring the extension. The CLI, the tool allow-list and the
+  # shared prompt file are the whole reviewer.
+  # ==========================================================================
+  gemini-review:
+    name: Gemini review (advisory)
+    # Same reasoning as Variant A: no review of a draft.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write # write: it posts the review comments
+      # NOTHING ELSE, and each absence is a checked claim rather than a default:
+      #
+      #   no `issues:`     the three MCP methods this job may call —
+      #                    pull_request_read, add_comment_to_pending_review,
+      #                    pull_request_review_write — are all the pull request
+      #                    REVIEW API, which `pull-requests: write` covers on its
+      #                    own. Issue comments (the PR conversation) are a
+      #                    different endpoint and a different permission, and no
+      #                    allowed method reaches one. Widen this only when you
+      #                    widen the tool allow-list below, and in the same diff.
+      #   no `id-token:`   that permission buys OIDC, and the API-key path below
+      #                    does not use it. Add it back on the day you switch to
+      #                    Workload Identity Federation — not before, because a
+      #                    token-minting permission granted "just in case" is a
+      #                    capability nobody remembers is on.
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Is this provider configured?
+        id: gate
+        env:
+          # ▸ PROVIDER CHOICE 2/3 — THE SECRET NAME
+          PROVIDER_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -z "$PROVIDER_KEY" ]; then
+            echo "::notice::GEMINI_API_KEY is not set — skipping the Gemini review."
+            echo "configured=false" >>"$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          fi
+
+      # ▸ PROVIDER CHOICE 3/3 — THE PROMPT. Byte-for-byte the step in Variant A,
+      # reading the same file; only the input it is fed to differs.
+      - name: Load the review prompt
+        id: prompt
+        if: steps.gate.outputs.configured == 'true'
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # A RANDOM heredoc delimiter, not a fixed one: this file comes from the
+          # PR's own checkout, so a fixed marker is a line an author could write
+          # to close the block early and append arbitrary step outputs.
+          delim="PROMPT_EOF_$(openssl rand -hex 8)"
+          {
+            printf 'prompt<<%s\n' "$delim"
+            sed -e "s|%%PR_NUMBER%%|$PR_NUMBER|g" \
+              -e "s|%%REPOSITORY%%|$REPOSITORY|g" \
+              .github/workflows/ai-review-prompt.md
+            printf '%s\n' "$delim"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Gemini review
+        if: steps.gate.outputs.configured == 'true'
+        # Advisory, for the same reason as Variant A.
+        continue-on-error: true
+        # ▸ PROVIDER CHOICE 1/3 — THE INVOCATION
+        uses: google-github-actions/run-gemini-cli@v0
+        env:
+          # LOAD-BEARING, not decoration. The CLI refuses to run in an untrusted
+          # directory at all, and an untrusted workspace also ignores the
+          # project's `.gemini/settings.json` — which is exactly the file this
+          # action writes the `settings:` block below into, MCP server and all.
+          # Without trust there is no review and no GitHub tools to post it with.
+          #
+          # What it costs, stated plainly: a trusted workspace lets the reviewer
+          # take part of its own context from the checkout — extensions, custom
+          # commands, GEMINI.md memory. Under `pull_request` that checkout is the
+          # branch under review, so the code being reviewed supplies some of the
+          # reviewer's configuration. That is sound here only because of the
+          # trigger invariant in the header: a fork PR arrives without secrets,
+          # gates itself off and never reaches this step. On
+          # `pull_request_target` this same line would let a stranger configure
+          # the agent that holds your provider key.
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ▸ PROVIDER CHOICE 2/3 — THE SECRET NAME
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        with:
+          # ▸ PROVIDER CHOICE 2/3 — THE SECRET NAME
+          #
+          # An API key is the simple path. The production-grade path is Workload
+          # Identity Federation — swap this input for gcp_workload_identity_provider
+          # + gcp_service_account once you have a GCP project to federate against;
+          # the action supports both.
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          workflow_name: ai-review
+          # ▸ PROVIDER CHOICE 1/3 (continued) — vendor-specific wiring.
+          #
+          # WHY THE ALLOW-LISTS ARE THE WHOLE BOUNDARY: this action always
+          # invokes the CLI with `--yolo`. There is no interactive confirmation
+          # in CI, so every tool call the model decides to make is auto-approved,
+          # and nothing between the prompt and the tool asks a human anything.
+          # What the model may do is therefore exactly what these two lists say
+          # and nothing else, which is why both are enumerated rather than left
+          # at their defaults:
+          #
+          #   mcpServers.github.includeTools — what it may do to the pull
+          #     request. This action reaches GitHub through an MCP server rather
+          #     than a built-in client, so this list is the API surface: read the
+          #     PR, and write review comments on it. No merge, no approve, no
+          #     issue comment, no branch.
+          #   tools.core — what it may do to the checkout. READ-ONLY file access,
+          #     deliberately: the prompt's first instruction is to read AGENTS.md
+          #     and the constitution articles, and a reviewer that cannot open
+          #     them reviews against nothing. Blindness is not the feature; the
+          #     feature is that no writing verb is on the list — no `write_file`,
+          #     no `replace`, no `run_shell_command` — with `contents: read`
+          #     above as the second wall behind it.
+          settings: |
+            {
+              "model": {
+                "maxSessionTurns": 25
+              },
+              "mcpServers": {
+                "github": {
+                  "command": "docker",
+                  "args": [
+                    "run", "-i", "--rm",
+                    "-e", "GITHUB_PERSONAL_ACCESS_TOKEN",
+                    "ghcr.io/github/github-mcp-server:v0.27.0"
+                  ],
+                  "includeTools": [
+                    "add_comment_to_pending_review",
+                    "pull_request_read",
+                    "pull_request_review_write"
+                  ],
+                  "env": {
+                    "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_TOKEN}"
+                  }
+                }
+              },
+              "tools": {
+                "core": [
+                  "read_file",
+                  "glob",
+                  "search_file_content",
+                  "list_directory"
+                ]
+              }
+            }
+          # ▸ PROVIDER CHOICE 3/3 — THE PROMPT, from the file loaded above.
+          prompt: ${{ steps.prompt.outputs.prompt }}

@@ -219,6 +219,7 @@ Next: <continue / stop — converged / stop — escalation>
 
 ## Cross-references
 
+- **`/implement`** — where the PR usually comes from. It pushes, opens the PR, and requests the **first** review, then stops; every iteration after that is this skill's. If you find yourself opening a PR here, or `/implement` re-entering a diff after its review, one of the two has crossed the seam.
 - **`/review-pr`** — the local two-axis review run at iteration step 2. Its §5b confirm-list is the source of the human-only items in hard rule 4.
 - **`/diagnose`** — when a failing check needs a real reproduction loop rather than a guess.
 - **`/merge-train`** — where merging was deliberately delegated to an operator-invoked skill. This one still never merges.
