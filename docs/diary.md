@@ -6,7 +6,7 @@
 
 ---
 
-## Current state — 2026-08-09
+## Current state — 2026-08-27
 
 <!--
 Update this block IN PLACE. It is the only part of this file that is edited
@@ -20,14 +20,14 @@ is in flight. Do not restate the README.
 
 | Field | Value |
 | --- | --- |
-| **Phase** | Tickets #2, #4, #8, #12 merged. Frontier: #5 (search — needs the Google Books API key), #7 (Clerk auth — needs a Clerk app). |
+| **Phase** | Search live in the codebase (#5) and kit 0.10.0 adopted. In flight: #7 (Clerk auth), #6 (paging). Remaining: #9, #10. |
 | **Repo** | `~/PetProjects/google-books-clojure` (`main`). Feature work happens in `worktree/<slug>` on a `<type>/<slug>` branch. |
 | **Remote** | `git@github.com:agranado2k/google-books-clojure.git` |
 | **Last commit on `main`** | see `git log` — main moves with docs commits; last milestone: PR #11 merge |
 | **Deployed / live** | https://google-books-clojure-production.up.railway.app — **stale: still the walking skeleton**. Railway is not connected to the repo, so nothing auto-deploys; `main` is three features ahead of production. |
-| **Active worktrees** | `worktree/kit-0-4-0` on `chore/kit-0-4-0` — the shared-layer update, now carried on to 0.10.0, open as a PR. |
+| **Active worktrees** | `worktree/clerk-auth` (#7), `worktree/search-paging` (#6). |
 | **Kit / shared layer** | 0.10.0 (see `VERSION`). Capability tiers are live: `scripts/agents.config.sh` maps all four onto Anthropic model families, plus one domain override (`AGENT_TIER_IMPLEMENTER_CONTENT`). `constitution/shared-code-craft.md` is a second shared article. `/dogfood` is adopted; its surfaces and personas are in `constitution/local-product.md`. |
-| **Spec status** | PRD in [issue #1](https://github.com/agranado2k/google-books-clojure/issues/1); tickets #2–#10 + #12/CI (DAG + labels in the checklist comment on #1). #2, #3 done. |
+| **Spec status** | PRD [#1](https://github.com/agranado2k/google-books-clojure/issues/1); #2,#4,#5,#8,#12 done. Open: #3 (deploy), #6, #7, #9, #10. |
 
 ### Open questions / unresolved decisions
 
@@ -121,7 +121,7 @@ only an API key (`intitle:`/`inauthor:`). Persistence: Railway Postgres via
 next.jdbc + HoneySQL, bookmarks denormalize a volume snapshot.
 
 Test seams agreed with the owner: handler-level (Ring) integration tests with
-a stubbed Books port and a test RSA keypair for JWT verification; real
+a stubbed Book search port and a test RSA keypair for JWT verification; real
 Postgres through the same seam; no browser tests.
 
 Next: `/to-tickets` on issue #1 — the PRD spans multiple sessions.
@@ -324,3 +324,31 @@ narrative is exactly what that agent's context isolation exists to exclude.
 Verified: all 13 manifest files verbatim on bytes **and** mode; docs gate green at
 0.10.0; docs-conformance harness 52/52; `clojure -X:test` 45 tests / 85 assertions
 / 0 failures.
+
+### 2026-08-27 — Search merged, kit moved 0.3.0 → 0.10.0, and a worktree lost to my own cleanup
+
+PRs #17 (shared layer 0.3.0 → 0.10.0) and #16 (search) merged within seconds of
+each other, closing ticket #5. `main` now carries the search page — a Book search
+port with a Google Books adapter, four render states, htmx fragment swaps — and
+the kit's 0.10.0 layer, which adds `constitution/shared-code-craft.md` (ten
+binding rules for the code itself), `scripts/agents.lib.sh`, and the `/dogfood`,
+`/explain-diff` and `/improve-codebase-architecture` skills.
+
+Search arrived expensive. Its review pass, and a second pass over the fixes,
+found and proved: an unauthenticated stack trace served from a crafted URL, an
+`HttpClient` leaked per request (36 → 131 threads under load), htmx history
+restore replacing the page body with a bare fragment, `Cache-Control: no-store`
+silently disabling bfcache, and — measured against a stalling server — a request
+thread pinned for 120 s despite a 10 s timeout, because `HttpRequest`'s timeout
+covers response headers, not body streaming. The API key also moved out of the
+URL into `X-goog-api-key`, which is now recorded in ADR-0003.
+
+**A self-inflicted loss worth recording.** Immediately after the merges I ran
+`scripts/worktree-cleanup.sh` while an agent was mid-implementation in
+`worktree/clerk-auth`. That branch had no commits yet, so its tip was still the
+old `main` — an ancestor of the new one — and the script's merged-test pruned it.
+Nothing was recoverable; the dangling objects were all older work. The rule this
+buys: **never run worktree cleanup while an agent holds a worktree**, and have
+implementation agents commit each red/green slice rather than banking work
+uncommitted. Ticket #7 was restarted from the new `main`, which at least let it
+gate the real `/search` page instead of a placeholder.
