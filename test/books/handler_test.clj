@@ -3,9 +3,11 @@
   response map. The database these tests talk to — and the command that starts
   one — is in `books.test-db`."
   (:require [books.assets :as assets]
+            [books.clerk :as clerk]
             [books.db :as db]
             [books.handler :as handler]
             [books.test-db :as test-db]
+            [books.test-jwt :as test-jwt]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [jsonista.core :as json]))
